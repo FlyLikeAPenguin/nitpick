@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+import logging
+import sys
+import time
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from .cache import ErrorCache
+from .config import Config, load_config, validate_config
+from .dashboard import run_dashboard
+from .fingerprint import build_dd_link, fingerprint_and_group
+from .fixer import attempt_fix, cleanup_stale_worktrees
+from .investigator import investigate
+from .models import RunStats
+from .providers import build_doc_sink, build_notifier, build_source, build_tracker
+
+log = logging.getLogger("nitpick")
+
+
+def setup_logging(config: Config) -> None:
+    log_file = config.log_dir / "nitpick.log"
+    handlers: list[logging.Handler] = [
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(log_file),
+    ]
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        handlers=handlers,
+    )
+
+
+def run_pipeline(config: Config) -> None:
+    cache = ErrorCache(config.db_path)
+    run_id = str(uuid4())
+    run_started = datetime.now(timezone.utc)
+    stats = RunStats()
+
+    doc_sink = build_doc_sink(config)
+    tracker = build_tracker(config)
+    notifier = build_notifier(config)
+
+    cleanup_stale_worktrees(config)
+
+    from .pr_tracker import check_open_prs
+    check_open_prs(cache, config, tracker=tracker, doc_sink=doc_sink)
+
+    global_settings = cache.get_all_settings()
+    max_per_run = int(global_settings.get("max_errors_per_run", str(config.max_errors_per_run)))
+    max_per_day = int(global_settings.get("max_investigations_per_day", str(config.max_investigations_per_day)))
+
+    log.info("=== nitpick run %s started ===", run_id[:8])
+    log.info("Global settings: max_per_run=%d max_per_day=%d", max_per_run, max_per_day)
+
+    if config.dry_run:
+        log.info("DRY RUN mode — will fetch and fingerprint but not investigate/fix")
+
+    investigated_this_run = 0
+    daily_limit_hit = False
+    investigations_today = cache.count_investigations_today()
+
+    if investigations_today >= max_per_day:
+        log.info(
+            "Daily investigation limit already reached (%d/%d), skipping investigations",
+            investigations_today, max_per_day,
+        )
+        daily_limit_hit = True
+
+    for service_name, service_config in config.services.items():
+        svc_settings = cache.resolve_service_settings(service_name)
+        svc_investigations = svc_settings.get("investigations_enabled", "true") == "true"
+        svc_fixes = svc_settings.get("fixes_enabled", "true") == "true"
+        svc_notify = svc_settings.get("slack_enabled", "true") == "true"
+        svc_budget = float(svc_settings.get("investigation_budget", str(config.claude_max_budget)))
+
+        log.info(
+            "Service %s: investigations=%s fixes=%s notify=%s budget=$%.2f",
+            service_name, svc_investigations, svc_fixes, svc_notify, svc_budget,
+        )
+
+        for region in service_config.regions:
+            source = build_source(config, region=region)
+            if not source.is_configured:
+                continue
+
+            raw_logs = source.fetch(
+                query=service_config.datadog_query,
+                lookback_seconds=config.lookback,
+                limit=200,
+            )
+            stats.errors_fetched += len(raw_logs)
+            time.sleep(0.5)
+
+            groups = fingerprint_and_group(
+                raw_logs, service_name, region, config.ignore_patterns
+            )
+
+            for group in groups:
+                from_ts = group.first_seen.strftime("%s000")
+                to_ts = group.last_seen.strftime("%s000")
+                group.dd_query_link = build_dd_link(
+                    region, service_config.datadog_query, from_ts, to_ts
+                )
+
+                is_new = cache.upsert_error(group)
+                if is_new:
+                    stats.new_errors += 1
+
+                needs_investigation = is_new or cache.get_status(group.fingerprint) in ("new", "failed")
+                if not needs_investigation:
+                    continue
+
+                if config.dry_run:
+                    log.info(
+                        "[DRY RUN] New error: %s/%s fp=%s count=%d",
+                        service_name, group.error_type,
+                        group.fingerprint, group.occurrence_count,
+                    )
+                    continue
+
+                if not svc_investigations:
+                    log.info("Investigations disabled for %s, skipping", service_name)
+                    continue
+
+                if daily_limit_hit:
+                    break
+
+                if investigated_this_run >= max_per_run:
+                    log.info("Max errors per run (%d) reached, deferring", max_per_run)
+                    break
+
+                if (investigations_today + investigated_this_run) >= max_per_day:
+                    log.info(
+                        "Daily investigation limit reached (%d/%d)",
+                        investigations_today + investigated_this_run,
+                        max_per_day,
+                    )
+                    if notifier:
+                        notifier.notify_daily_limit(
+                            investigations_today + investigated_this_run,
+                            max_per_day,
+                        )
+                    daily_limit_hit = True
+                    break
+
+                svc_config_copy = config.__class__(**config.__dict__)
+                svc_config_copy.claude_max_budget = svc_budget
+
+                cache.mark_investigating(group.fingerprint, "")
+                recent_investigations = cache.get_recent_investigations_for_service(service_name)
+                investigation = investigate(group, service_config, svc_config_copy, recent_investigations)
+                cache.save_investigation(investigation)
+                stats.investigated += 1
+                stats.total_cost_usd += investigation.claude_cost_usd
+                investigated_this_run += 1
+
+                if investigation.status == "failed":
+                    cache.update_error_status(group.fingerprint, "failed")
+                    continue
+
+                new_status = "documented"
+
+                # Create RCA documentation via doc sink
+                if doc_sink and doc_sink.is_configured:
+                    try:
+                        doc_url = doc_sink.create(group, investigation)
+                        investigation.notion_page_url = doc_url
+                    except Exception as e:
+                        log.warning("Doc sink create failed: %s", e)
+
+                # File issue via tracker
+                if tracker and tracker.is_configured and investigation.is_actionable:
+                    try:
+                        issue_url = tracker.create(group, investigation)
+                        investigation.linear_issue_url = issue_url
+                        stats.issues_created += 1
+                    except Exception as e:
+                        log.warning("Tracker create failed: %s", e)
+
+                # Attempt fix if feasible
+                if (
+                    svc_fixes
+                    and investigation.is_fixable
+                    and investigation.estimated_fix_lines
+                    and investigation.estimated_fix_lines < 250
+                ):
+                    pr_url = attempt_fix(group, investigation, service_config, config)
+                    if pr_url:
+                        stats.prs_created += 1
+                        stats.total_cost_usd += investigation.claude_cost_usd
+                        new_status = "fixed"
+
+                        # Attach PR to issue and add doc comment
+                        if tracker and investigation.linear_issue_url:
+                            try:
+                                short_desc = investigation.fix_description[:60] if investigation.fix_description else investigation.root_cause[:60]
+                                tracker.attach_pr(investigation.linear_issue_url, pr_url, f"fix({group.service}): {short_desc}")
+                                tracker.transition(investigation.linear_issue_url, "in_review")
+                            except Exception as e:
+                                log.warning("Tracker PR attach failed: %s", e)
+                        if doc_sink and investigation.notion_page_url:
+                            try:
+                                doc_sink.comment(investigation.notion_page_url, f"Fix PR opened: {pr_url}")
+                            except Exception as e:
+                                log.warning("Doc sink comment failed: %s", e)
+
+                cache.save_investigation(investigation)
+                cache.update_error_status(group.fingerprint, new_status)
+
+                # Notify
+                if svc_notify and notifier and investigation.is_actionable:
+                    already_reported = (
+                        investigation.linear_issue_url
+                        and any(
+                            ri.get("linear_issue_url") == investigation.linear_issue_url
+                            for ri in recent_investigations or []
+                        )
+                    )
+                    if not already_reported:
+                        subscribers = cache.get_subscribers_for_service(service_name)
+                        notifier.notify(group, investigation, config, subscribers)
+
+    run_completed = datetime.now(timezone.utc)
+    cache.log_run(run_id, run_started, run_completed, stats.as_dict())
+
+    log.info(
+        "=== Run %s complete: fetched=%d new=%d investigated=%d issues=%d prs=%d cost=$%.4f ===",
+        run_id[:8], stats.errors_fetched, stats.new_errors,
+        stats.investigated, stats.issues_created, stats.prs_created,
+        stats.total_cost_usd,
+    )
+
+
+def cli() -> None:
+    if len(sys.argv) < 2:
+        print("Usage: python -m src.main <run|serve>")
+        print("  run   — execute one pipeline cycle")
+        print("  serve — start the monitoring dashboard")
+        sys.exit(1)
+
+    config = load_config()
+    setup_logging(config)
+
+    command = sys.argv[1]
+
+    if command == "run":
+        missing = validate_config(config)
+        if missing:
+            log.warning("Config warnings: %s", ", ".join(missing))
+        run_pipeline(config)
+
+    elif command == "serve":
+        run_dashboard(config)
+
+    else:
+        print(f"Unknown command: {command}")
+        print("Usage: python -m src.main <run|serve>")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    cli()

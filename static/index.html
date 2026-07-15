@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nitpick Dashboard</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+  :root {
+    --bg: #0d1117; --bg2: #161b22; --bg3: #21262d;
+    --fg: #c9d1d9; --fg2: #8b949e; --fg3: #484f58;
+    --red: #f85149; --orange: #d29922; --yellow: #e3b341;
+    --green: #3fb950; --blue: #58a6ff; --purple: #bc8cff;
+    --border: #30363d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+  .header h1 { font-size: 16px; font-weight: 600; }
+  .header .meta { color: var(--fg2); font-size: 12px; }
+
+  .stats-bar { display: flex; gap: 12px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 14px; min-width: 100px; }
+  .stat .label { color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+  .stat .value.red { color: var(--red); }
+  .stat .value.green { color: var(--green); }
+  .stat .value.orange { color: var(--orange); }
+  .stat .value.blue { color: var(--blue); }
+
+  .tabs { display: flex; gap: 0; padding: 0 24px; border-bottom: 1px solid var(--border); }
+  .tab { padding: 10px 16px; cursor: pointer; color: var(--fg2); border-bottom: 2px solid transparent; transition: all 0.15s; }
+  .tab:hover { color: var(--fg); }
+  .tab.active { color: var(--fg); border-bottom-color: var(--blue); }
+
+  .content { padding: 16px 24px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 8px 10px; color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+  th:hover { color: var(--fg); }
+  th .sort-arrow { font-size: 10px; margin-left: 3px; opacity: 0.4; }
+  th.sorted .sort-arrow { opacity: 1; color: var(--blue); }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover { background: var(--bg2); }
+  tr.expandable { cursor: pointer; }
+  tr.expandable td:first-child::before { content: "▸ "; color: var(--fg3); font-size: 11px; }
+  tr.expandable.open td:first-child::before { content: "▾ "; color: var(--blue); }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
+  .badge-new { background: var(--blue); color: #000; }
+  .badge-investigating { background: var(--orange); color: #000; }
+  .badge-documented { background: var(--purple); color: #000; }
+  .badge-fixed { background: var(--green); color: #000; }
+  .badge-merged { background: var(--purple); color: #000; }
+  .badge-ignored { background: var(--fg3); color: var(--fg); }
+  .badge-failed { background: var(--red); color: #000; }
+  .badge-complete { background: var(--green); color: #000; }
+  .badge-pending { background: var(--yellow); color: #000; }
+
+  .severity-critical { color: var(--red); font-weight: 700; }
+  .severity-high { color: var(--red); font-weight: 600; }
+  .severity-medium { color: var(--yellow); }
+  .severity-low { color: var(--green); }
+
+  .expand-row { display: none; }
+  .expand-row.open { display: table-row; }
+  .expand-row td { background: var(--bg2); padding: 12px 16px; }
+  .detail-grid { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; }
+  .detail-grid .label { color: var(--fg2); }
+
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+  .filters select { background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 12px; }
+
+  .cost-bar-container { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .cost-bar-label { width: 80px; text-align: right; color: var(--fg2); font-size: 12px; }
+  .cost-bar { height: 18px; border-radius: 3px; min-width: 2px; transition: width 0.3s; }
+  .cost-bar.investigate { background: var(--blue); }
+  .cost-bar.fix { background: var(--purple); }
+  .cost-bar-value { color: var(--fg2); font-size: 12px; margin-left: 4px; }
+
+  .empty { text-align: center; padding: 40px; color: var(--fg2); }
+  .refresh-btn { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 10px; cursor: pointer; font-family: inherit; font-size: 12px; }
+  .refresh-btn:hover { background: var(--border); }
+
+  .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 640px; }
+  .setting-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .setting-card .label { color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+  .setting-card .desc { color: var(--fg3); font-size: 11px; margin-top: 6px; }
+  .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; inset: 0; background: var(--fg3); border-radius: 22px; transition: 0.2s; }
+  .toggle .slider:before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px; background: var(--bg); border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: var(--green); }
+  .toggle input:checked + .slider:before { transform: translateX(18px); }
+  .setting-input { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; font-size: 13px; width: 100px; }
+  .settings-saved { color: var(--green); font-size: 12px; opacity: 0; transition: opacity 0.3s; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Nitpick</h1>
+  <div class="meta">
+    <span id="last-run">Loading...</span>
+    <button class="refresh-btn" onclick="loadAll()" style="margin-left: 8px;">Refresh</button>
+    <button class="refresh-btn" onclick="triggerRun()" style="margin-left: 6px; background: #1a6b35; border-color: #238636;" id="trigger-btn">Run Now</button>
+  </div>
+</div>
+
+<div class="stats-bar" id="stats-bar"></div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="errors">Errors</div>
+  <div class="tab" data-tab="investigations">Investigations</div>
+  <div class="tab" data-tab="runs">Runs</div>
+  <div class="tab" data-tab="costs">Costs</div>
+  <div class="tab" data-tab="logs">Logs</div>
+  <div class="tab" data-tab="services">Services</div>
+  <div class="tab" data-tab="notifications">Notifications</div>
+  <div class="tab" data-tab="settings">Settings</div>
+</div>
+
+<div class="content">
+  <!-- Errors -->
+  <div class="panel active" id="panel-errors">
+    <div class="filters">
+      <select id="filter-service" onchange="loadErrors()"><option value="">All services</option></select>
+      <select id="filter-status" onchange="loadErrors()">
+        <option value="">All statuses</option>
+        <option value="new">New</option>
+        <option value="investigating">Investigating</option>
+        <option value="documented">Documented</option>
+        <option value="fixed">Fixed</option>
+        <option value="ignored">Ignored</option>
+      </select>
+    </div>
+    <table>
+      <thead><tr>
+        <th onclick="sortTable('errors','service')">Service <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('errors','error_type')">Error <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('errors','region')">Region <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('errors','occurrence_count')">Count <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('errors','status')">Status <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('errors','last_seen')">Last Seen <span class="sort-arrow">▲</span></th>
+      </tr></thead>
+      <tbody id="errors-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Investigations -->
+  <div class="panel" id="panel-investigations">
+    <table>
+      <thead><tr>
+        <th onclick="sortTable('investigations','started_at')">Time <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','service')">Service <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','error_type')">Error <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','severity')">Severity <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','is_actionable')">Actionable <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','is_fixable')">Fixable <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','status')">Status <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('investigations','claude_cost_usd')">Cost <span class="sort-arrow">▲</span></th>
+        <th>Links</th>
+      </tr></thead>
+      <tbody id="investigations-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Runs -->
+  <div class="panel" id="panel-runs">
+    <table>
+      <thead><tr>
+        <th onclick="sortTable('runs','started_at')">Time <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','errors_fetched')">Fetched <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','new_errors')">New <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','investigated')">Investigated <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','issues_created')">Issues <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','prs_created')">PRs <span class="sort-arrow">▲</span></th>
+        <th onclick="sortTable('runs','total_cost_usd')">Cost <span class="sort-arrow">▲</span></th>
+        <th>Duration</th>
+      </tr></thead>
+      <tbody id="runs-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Costs -->
+  <div class="panel" id="panel-costs">
+    <h3 style="margin-bottom: 12px; color: var(--fg2);">Daily Costs (last 30 days)</h3>
+    <div id="cost-chart"></div>
+  </div>
+
+  <!-- Services -->
+  <div class="panel" id="panel-services">
+    <h3 style="color: var(--fg2); margin-bottom: 4px;">Monitored Services</h3>
+    <p style="color: var(--fg3); font-size: 12px; margin-bottom: 16px;">Services being watched for errors in Datadog. Changes take effect on the next pipeline run.</p>
+
+    <details style="margin-bottom: 20px; border: 1px solid var(--border); border-radius: 6px; padding: 12px;">
+      <summary style="cursor: pointer; color: var(--blue); font-weight: 500;">+ Add service</summary>
+      <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: flex-end;">
+        <div>
+          <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Service name</div>
+          <input type="text" id="svc-name" placeholder="my-api" oninput="autoFillService()" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 220px;">
+        </div>
+        <div>
+          <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Datadog query</div>
+          <input type="text" id="svc-query" placeholder="service:my-service status:error" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 320px;">
+        </div>
+        <div>
+          <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Regions</div>
+          <input type="text" id="svc-regions" value="eu, us" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 100px;">
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Code paths <span style="color: var(--fg3); text-transform: none;">(one per line: repo:path)</span></div>
+        <textarea id="svc-codepaths" rows="3" placeholder="backend:src/my_api" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 100%; resize: vertical;"></textarea>
+      </div>
+      <button class="refresh-btn" onclick="addService()" style="background: #1a6b35; border-color: #238636; margin-top: 10px;">Add Service</button>
+    </details>
+
+    <div id="services-list"></div>
+  </div>
+
+  <!-- Notifications -->
+  <div class="panel" id="panel-notifications">
+    <h3 style="color: var(--fg2); margin-bottom: 4px;">Slack Notifications</h3>
+    <p style="color: var(--fg3); font-size: 12px; margin-bottom: 16px;">Subscribe to services to get tagged in Slack when new errors are found. Paste your Slack profile URL (e.g. https://your-workspace.slack.com/team/UXXXXXXXXXX).</p>
+
+    <div style="display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: flex-end;">
+      <div>
+        <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Service</div>
+        <select id="sub-service" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit;"></select>
+      </div>
+      <div>
+        <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Name</div>
+        <input type="text" id="sub-name" placeholder="Your name" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 140px;">
+      </div>
+      <div>
+        <div style="color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Slack Profile URL</div>
+        <input type="text" id="sub-url" placeholder="https://your-workspace.slack.com/team/U..." style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; font-family: inherit; width: 340px;">
+      </div>
+      <button class="refresh-btn" onclick="addSubscription()" style="background: #1a6b35; border-color: #238636;">Subscribe</button>
+    </div>
+
+    <div id="subscriptions-grid"></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="panel" id="panel-settings">
+    <div style="display: flex; align-items: center; margin-bottom: 16px;">
+      <h3 style="color: var(--fg2);">Global Settings</h3>
+      <span class="settings-saved" id="settings-saved">✓ Saved</span>
+    </div>
+    <p style="color: var(--fg3); font-size: 12px; margin-bottom: 16px;">Defaults for all services. Per-service overrides below.</p>
+    <div class="settings-grid">
+      <div class="setting-card">
+        <div class="label">Investigations</div>
+        <label class="toggle"><input type="checkbox" id="set-investigations-enabled" onchange="saveSetting('investigations_enabled', this.checked)"><span class="slider"></span></label>
+        <div class="desc">Run Claude investigations on new errors</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Auto-fix &amp; PR</div>
+        <label class="toggle"><input type="checkbox" id="set-fixes-enabled" onchange="saveSetting('fixes_enabled', this.checked)"><span class="slider"></span></label>
+        <div class="desc">Attempt automated fixes and open PRs for fixable errors</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Slack notifications</div>
+        <label class="toggle"><input type="checkbox" id="set-slack-enabled" onchange="saveSetting('slack_enabled', this.checked)"><span class="slider"></span></label>
+        <div class="desc">Send Slack messages for actionable errors</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Max errors per run</div>
+        <input type="number" class="setting-input" id="set-max-errors-per-run" min="1" max="50" onchange="saveSetting('max_errors_per_run', this.value)">
+        <div class="desc">Limit investigations per hourly run</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Max investigations per day</div>
+        <input type="number" class="setting-input" id="set-max-investigations-per-day" min="1" max="200" onchange="saveSetting('max_investigations_per_day', this.value)">
+        <div class="desc">Daily cap across all runs</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Investigation budget ($)</div>
+        <input type="number" class="setting-input" id="set-investigation-budget" min="0.50" max="10" step="0.25" onchange="saveSetting('investigation_budget', this.value)">
+        <div class="desc">Max spend per Claude investigation</div>
+      </div>
+    </div>
+
+    <div style="margin-top: 32px; border-top: 1px solid var(--border); padding-top: 20px;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <h3 style="color: var(--fg2);">Per-Service Overrides</h3>
+        <select id="svc-settings-select" onchange="renderServiceSettings()" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: inherit; font-size: 12px;"></select>
+      </div>
+      <p style="color: var(--fg3); font-size: 12px; margin-bottom: 16px;">Override global defaults for a specific service. Leave blank to use the global value.</p>
+      <div id="svc-settings-grid" class="settings-grid"></div>
+    </div>
+  </div>
+
+  <!-- Logs -->
+  <div class="panel" id="panel-logs">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+      <select id="log-lines" onchange="loadLogs()" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: inherit;">
+        <option value="100">100 lines</option>
+        <option value="200" selected>200 lines</option>
+        <option value="500">500 lines</option>
+      </select>
+      <label style="color: var(--fg2); font-size: 12px; display: flex; align-items: center; gap: 4px;">
+        <input type="checkbox" id="log-auto" checked> Auto-refresh
+      </label>
+      <input type="text" id="log-filter" placeholder="Filter..." oninput="renderLogs()" style="background: var(--bg2); color: var(--fg); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: inherit; flex: 1;">
+    </div>
+    <pre id="log-output" style="background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; max-height: calc(100vh - 280px); font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-all;"></pre>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+function fmt(d) {
+  if (!d) return '-';
+  const dt = new Date(d);
+  return dt.toLocaleString('en-GB', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function badge(status) {
+  return `<span class="badge badge-${status}">${status}</span>`;
+}
+
+function severity(s) {
+  return `<span class="severity-${s}">${s}</span>`;
+}
+
+// Tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.onclick = () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    // Start/stop log auto-refresh when switching tabs
+    if (tab.dataset.tab === 'logs') {
+      loadLogs();
+      logInterval = setInterval(() => { if (document.getElementById('log-auto').checked) loadLogs(); }, 3000);
+    } else if (logInterval) {
+      clearInterval(logInterval);
+      logInterval = null;
+    }
+  };
+});
+
+async function api(path) {
+  const r = await fetch(API + path);
+  return r.json();
+}
+
+async function loadStats() {
+  const s = await api('/api/stats');
+  const bar = document.getElementById('stats-bar');
+  const bs = s.by_status || {};
+  bar.innerHTML = `
+    <div class="stat"><div class="label">Total Errors</div><div class="value">${s.total_errors}</div></div>
+    <div class="stat"><div class="label">New</div><div class="value blue">${bs.new || 0}</div></div>
+    <div class="stat"><div class="label">Fixed</div><div class="value green">${bs.fixed || 0}</div></div>
+    <div class="stat"><div class="label">Ignored</div><div class="value">${bs.ignored || 0}</div></div>
+    <div class="stat"><div class="label">Cost (7d)</div><div class="value orange">$${(s.total_cost_7d || 0).toFixed(2)}</div></div>
+  `;
+
+  const sel = document.getElementById('filter-service');
+  const existing = new Set([...sel.options].map(o => o.value));
+  for (const svc of Object.keys(s.by_service || {})) {
+    if (!existing.has(svc)) {
+      const opt = document.createElement('option');
+      opt.value = svc; opt.textContent = svc;
+      sel.appendChild(opt);
+    }
+  }
+
+  return s;
+}
+
+async function loadRuns() {
+  cachedRuns = await api('/api/runs');
+  if (cachedRuns.length) document.getElementById('last-run').textContent = 'Last run: ' + fmt(cachedRuns[0].started_at);
+  if (sortState.runs.column) cachedRuns.sort(getSortComparator(sortState.runs.column, sortState.runs.ascending));
+  renderRuns();
+}
+
+function renderRuns() {
+  const body = document.getElementById('runs-body');
+  if (!cachedRuns.length) { body.innerHTML = '<tr><td colspan="8" class="empty">No runs yet</td></tr>'; return; }
+  body.innerHTML = cachedRuns.map(r => {
+    const dur = r.completed_at && r.started_at
+      ? Math.round((new Date(r.completed_at) - new Date(r.started_at)) / 1000) + 's'
+      : '-';
+    return `<tr>
+      <td>${fmt(r.started_at)}</td>
+      <td>${r.errors_fetched}</td>
+      <td>${r.new_errors}</td>
+      <td>${r.investigated}</td>
+      <td>${r.issues_created}</td>
+      <td>${r.prs_created}</td>
+      <td>$${(r.total_cost_usd || 0).toFixed(4)}</td>
+      <td>${dur}</td>
+    </tr>`;
+  }).join('');
+}
+
+let relatedErrorMap = {};  // fingerprint -> {linear_url, siblings: [{fingerprint, message}]}
+
+async function loadErrors() {
+  const svc = document.getElementById('filter-service').value;
+  const st = document.getElementById('filter-status').value;
+  let url = '/api/errors?';
+  if (svc) url += `service=${svc}&`;
+  if (st) url += `status=${st}&`;
+  const [errors, related] = await Promise.all([api(url), api('/api/related-errors')]);
+
+  // Build a lookup: fingerprint -> related group, with a colour per group
+  const groupColors = ['#e06c75','#61afef','#e5c07b','#98c379','#c678dd','#56b6c2','#d19a66','#be5046','#7ec8e3','#c3a6ff'];
+  relatedErrorMap = {};
+  let colorIdx = 0;
+  for (const [linearUrl, members] of Object.entries(related)) {
+    const color = groupColors[colorIdx % groupColors.length];
+    colorIdx++;
+    for (const m of members) {
+      relatedErrorMap[m.fingerprint] = {
+        linear_url: linearUrl,
+        color,
+        siblings: members.filter(s => s.fingerprint !== m.fingerprint),
+      };
+    }
+  }
+
+  cachedErrors = errors;
+  if (sortState.errors.column) cachedErrors.sort(getSortComparator(sortState.errors.column, sortState.errors.ascending));
+  renderErrors();
+}
+
+function renderErrors() {
+  const body = document.getElementById('errors-body');
+  if (!cachedErrors.length) { body.innerHTML = '<tr><td colspan="6" class="empty">No errors found</td></tr>'; return; }
+
+  body.innerHTML = cachedErrors.map((e, i) => {
+    const msg = (e.message_template || '').substring(0, 60);
+    const rel = relatedErrorMap[e.fingerprint];
+    const relBadge = rel ? ` <span class="badge" style="background:${rel.color}22;color:${rel.color};border-color:${rel.color}44;" title="Shares root cause with ${rel.siblings.length} other error(s)">🔗 ${rel.siblings.length + 1}</span>` : '';
+
+    // Investigation links
+    const invLinks = [];
+    if (e.inv_notion_url) invLinks.push(`<a href="${e.inv_notion_url}" target="_blank">RCA</a>`);
+    if (e.inv_linear_url) invLinks.push(`<a href="${e.inv_linear_url}" target="_blank">Linear</a>`);
+    if (e.inv_pr_url) {
+      const prBadge = e.inv_pr_status === 'merged' ? ' <span class="badge badge-merged">merged</span>'
+        : e.inv_pr_status === 'closed' ? ' <span class="badge badge-failed">closed</span>' : '';
+      invLinks.push(`<a href="${e.inv_pr_url}" target="_blank">PR</a>${prBadge}`);
+    }
+
+    // Related errors section
+    let relatedHtml = '';
+    if (rel && rel.siblings.length) {
+      relatedHtml = `<div class="label">Related errors</div><div>${rel.siblings.map(s =>
+        `<div style="margin-bottom:2px;"><code style="font-size:11px;color:var(--fg3);">${s.fingerprint.substring(0,12)}…</code> ${esc((s.message || '').substring(0, 80))}</div>`
+      ).join('')}<div style="font-size:11px;color:var(--fg3);margin-top:2px;">Linked via <a href="${rel.linear_url}" target="_blank">same Linear issue</a></div></div>`;
+    }
+
+    return `<tr class="expandable" onclick="toggleExpand(${i})">
+      <td><code>${e.service}</code></td>
+      <td title="${esc(e.message_template || '')}"><code>${e.error_type}</code> ${esc(msg)}${relBadge}</td>
+      <td>${e.region || '-'}</td>
+      <td>${e.occurrence_count}</td>
+      <td>${badge(e.status)}</td>
+      <td>${fmt(e.last_seen)}</td>
+    </tr>
+    <tr class="expand-row" id="expand-${i}">
+      <td colspan="6">
+        <div class="detail-grid">
+          <div class="label">Fingerprint</div><div><code>${e.fingerprint}</code></div>
+          <div class="label">First seen</div><div>${fmt(e.first_seen)}</div>
+          <div class="label">Message</div><div>${esc(e.message_template || '-')}</div>
+          <div class="label">DD Link</div><div>${e.dd_query_link ? `<a href="${e.dd_query_link}" target="_blank">Open in Datadog</a>` : '-'}</div>${e.inv_root_cause ? `
+          <div class="label">Root cause</div><div>${esc(e.inv_root_cause)}</div>` : ''}${invLinks.length ? `
+          <div class="label">Investigation</div><div>${invLinks.join(' | ')}</div>` : ''}${relatedHtml}
+        </div>
+        ${e.status !== 'ignored' ? `<button class="refresh-btn" style="margin-top: 8px;" onclick="ignoreError('${e.fingerprint}')">Ignore this error</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadInvestigations() {
+  cachedInvestigations = await api('/api/investigations');
+  if (sortState.investigations.column) cachedInvestigations.sort(getSortComparator(sortState.investigations.column, sortState.investigations.ascending));
+  renderInvestigations();
+}
+
+function renderInvestigations() {
+  const body = document.getElementById('investigations-body');
+  if (!cachedInvestigations.length) { body.innerHTML = '<tr><td colspan="9" class="empty">No investigations yet</td></tr>'; return; }
+
+  body.innerHTML = cachedInvestigations.map((inv, i) => {
+    const links = [];
+    if (inv.notion_page_url) links.push(`<a href="${inv.notion_page_url}" target="_blank">Notion</a>`);
+    if (inv.linear_issue_url) links.push(`<a href="${inv.linear_issue_url}" target="_blank">Linear</a>`);
+    if (inv.pr_url) {
+      const prBadge = inv.pr_status === 'merged' ? ' <span class="badge badge-merged">merged</span>'
+        : inv.pr_status === 'closed' ? ' <span class="badge badge-failed">closed</span>'
+        : inv.pr_status === 'open' ? ' <span class="badge badge-investigating">open</span>' : '';
+      links.push(`<a href="${inv.pr_url}" target="_blank">PR</a>${prBadge}`);
+    }
+    return `<tr class="expandable" onclick="toggleInv(${i})">
+      <td>${fmt(inv.started_at)}</td>
+      <td><code>${inv.service || '-'}</code></td>
+      <td><code>${inv.error_type || '-'}</code></td>
+      <td>${severity(inv.severity || 'medium')}</td>
+      <td>${inv.is_actionable ? '✓' : '-'}</td>
+      <td>${inv.is_fixable ? '✓' : '-'}</td>
+      <td>${badge(inv.status)}</td>
+      <td>$${(inv.claude_cost_usd || 0).toFixed(4)}</td>
+      <td>${links.join(' ') || '-'}</td>
+    </tr>
+    <tr class="expand-row" id="inv-expand-${i}">
+      <td colspan="9">
+        <div class="detail-grid">
+          <div class="label">Root Cause</div><div>${inv.root_cause || '-'}</div>
+          <div class="label">Fix</div><div>${inv.fix_description || '-'}</div>${inv.fix_error ? `
+          <div class="label">Fix Error</div><div style="color:#f44">${inv.fix_error}</div>` : ''}
+          <div class="label">Recommendation</div><div>${inv.recommendation || '-'}</div>
+          <div class="label">Files</div><div><code>${inv.affected_files || '-'}</code></div>
+          <div class="label">Tokens</div><div>In: ${inv.claude_input_tokens || 0} / Out: ${inv.claude_output_tokens || 0}</div>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadCosts(stats) {
+  const s = stats || await api('/api/stats');
+  const chart = document.getElementById('cost-chart');
+  const days = s.daily_costs || [];
+
+  if (!days.length) { chart.innerHTML = '<div class="empty">No cost data yet</div>'; return; }
+
+  const maxCost = Math.max(...days.map(d => d.cost || 0), 0.01);
+  chart.innerHTML = days.map(d => {
+    const w = Math.max(((d.cost || 0) / maxCost) * 100, 1);
+    return `<div class="cost-bar-container">
+      <div class="cost-bar-label">${d.day}</div>
+      <div class="cost-bar investigate" style="width: ${w}%"></div>
+      <span class="cost-bar-value">$${(d.cost || 0).toFixed(4)} (${d.investigations || 0} inv, ${d.fixes || 0} fix)</span>
+    </div>`;
+  }).join('');
+}
+
+function toggleExpand(i) {
+  document.getElementById('expand-' + i).classList.toggle('open');
+  document.getElementById('expand-' + i).previousElementSibling.classList.toggle('open');
+}
+function toggleInv(i) {
+  document.getElementById('inv-expand-' + i).classList.toggle('open');
+  document.getElementById('inv-expand-' + i).previousElementSibling.classList.toggle('open');
+}
+
+async function ignoreError(fp) {
+  await fetch(API + '/api/errors/' + fp + '/ignore', { method: 'POST' });
+  loadErrors();
+  loadStats();
+}
+
+let logData = [];
+let logInterval = null;
+
+async function loadLogs() {
+  const lines = document.getElementById('log-lines').value;
+  const data = await api('/api/logs?lines=' + lines);
+  logData = data.lines || [];
+  renderLogs();
+}
+
+function renderLogs() {
+  const filter = (document.getElementById('log-filter').value || '').toLowerCase();
+  const el = document.getElementById('log-output');
+  const filtered = filter ? logData.filter(l => l.toLowerCase().includes(filter)) : logData;
+  el.innerHTML = filtered.map(line => {
+    let cls = '';
+    if (line.includes(' ERROR ')) cls = 'color: var(--red)';
+    else if (line.includes(' WARNING ')) cls = 'color: var(--orange)';
+    else if (line.includes('Investigation complete') || line.includes('Slack notification sent')) cls = 'color: var(--green)';
+    else if (line.includes('=== nitpick run')) cls = 'color: var(--blue)';
+    return cls ? `<span style="${cls}">${esc(line)}</span>` : esc(line);
+  }).join('\n');
+  el.scrollTop = el.scrollHeight;
+}
+
+function esc(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Sort state
+const sortState = {
+  errors: { column: null, ascending: true },
+  runs: { column: null, ascending: true },
+  investigations: { column: null, ascending: true },
+};
+let cachedErrors = [];
+let cachedRuns = [];
+let cachedInvestigations = [];
+
+const numericCols = new Set(['occurrence_count','errors_fetched','new_errors','investigated','issues_created','prs_created','total_cost_usd','claude_cost_usd']);
+const dateCols = new Set(['last_seen','first_seen','started_at','completed_at']);
+const boolCols = new Set(['is_actionable','is_fixable']);
+
+function getSortComparator(column, ascending) {
+  return (a, b) => {
+    let va = a[column], vb = b[column], cmp = 0;
+    if (numericCols.has(column)) cmp = (Number(va) || 0) - (Number(vb) || 0);
+    else if (dateCols.has(column)) cmp = new Date(va || 0) - new Date(vb || 0);
+    else if (boolCols.has(column)) cmp = (va ? 1 : 0) - (vb ? 1 : 0);
+    else cmp = String(va || '').localeCompare(String(vb || ''));
+    return ascending ? cmp : -cmp;
+  };
+}
+
+function sortTable(tableName, column) {
+  const state = sortState[tableName];
+  if (state.column === column) { state.ascending = !state.ascending; }
+  else { state.column = column; state.ascending = true; }
+
+  const comp = getSortComparator(column, state.ascending);
+  if (tableName === 'errors') { cachedErrors.sort(comp); renderErrors(); }
+  else if (tableName === 'runs') { cachedRuns.sort(comp); renderRuns(); }
+  else if (tableName === 'investigations') { cachedInvestigations.sort(comp); renderInvestigations(); }
+  updateSortArrows(tableName);
+}
+
+function updateSortArrows(tableName) {
+  const panel = document.getElementById('panel-' + tableName);
+  panel.querySelectorAll('th').forEach(th => {
+    th.classList.remove('sorted');
+    const arrow = th.querySelector('.sort-arrow');
+    if (arrow) arrow.textContent = '▲';
+  });
+  const state = sortState[tableName];
+  if (!state.column) return;
+  panel.querySelectorAll('th').forEach(th => {
+    const oc = th.getAttribute('onclick') || '';
+    if (oc.includes("'" + state.column + "'")) {
+      th.classList.add('sorted');
+      const arrow = th.querySelector('.sort-arrow');
+      if (arrow) arrow.textContent = state.ascending ? '▲' : '▼';
+    }
+  });
+}
+
+async function triggerRun() {
+  const btn = document.getElementById('trigger-btn');
+  btn.textContent = 'Running...';
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  await fetch(API + '/api/trigger-run', { method: 'POST' });
+  setTimeout(() => { btn.textContent = 'Run Now'; btn.disabled = false; btn.style.opacity = '1'; loadAll(); }, 5000);
+}
+
+async function loadSettings() {
+  const s = await api('/api/settings');
+  document.getElementById('set-investigations-enabled').checked = s.investigations_enabled === 'true';
+  document.getElementById('set-fixes-enabled').checked = s.fixes_enabled === 'true';
+  document.getElementById('set-slack-enabled').checked = s.slack_enabled === 'true';
+  document.getElementById('set-max-errors-per-run').value = s.max_errors_per_run || '10';
+  document.getElementById('set-max-investigations-per-day').value = s.max_investigations_per_day || '50';
+  document.getElementById('set-investigation-budget').value = s.investigation_budget || '2.00';
+}
+
+async function saveSetting(key, value) {
+  const payload = {};
+  payload[key] = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
+  await fetch(API + '/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const badge = document.getElementById('settings-saved');
+  badge.style.opacity = '1';
+  setTimeout(() => badge.style.opacity = '0', 1500);
+}
+
+let allServiceSettings = {};  // {service: {key: value}}
+let globalSettingsCache = {};
+
+async function loadServiceSettings() {
+  const [services, svcSettings, globalSettings] = await Promise.all([
+    api('/api/services'),
+    api('/api/service-settings'),
+    api('/api/settings'),
+  ]);
+  allServiceSettings = svcSettings;
+  globalSettingsCache = globalSettings;
+  const sel = document.getElementById('svc-settings-select');
+  const current = sel.value;
+  const names = Object.keys(services.services || {});
+  sel.innerHTML = names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if (current && names.includes(current)) sel.value = current;
+  renderServiceSettings();
+}
+
+function renderServiceSettings() {
+  const service = document.getElementById('svc-settings-select').value;
+  const grid = document.getElementById('svc-settings-grid');
+  if (!service) { grid.innerHTML = ''; return; }
+  const overrides = allServiceSettings[service] || {};
+
+  const items = [
+    { key: 'investigations_enabled', label: 'Investigations', type: 'toggle', desc: 'Run Claude investigations' },
+    { key: 'fixes_enabled', label: 'Auto-fix & PR', type: 'toggle', desc: 'Attempt automated fixes' },
+    { key: 'slack_enabled', label: 'Slack notifications', type: 'toggle', desc: 'Send Slack messages' },
+    { key: 'investigation_budget', label: 'Investigation budget ($)', type: 'number', desc: 'Max spend per investigation', min: 0.5, max: 10, step: 0.25 },
+  ];
+
+  grid.innerHTML = items.map(item => {
+    const hasOverride = item.key in overrides;
+    const globalVal = globalSettingsCache[item.key] || '';
+    const val = hasOverride ? overrides[item.key] : globalVal;
+    const globalHint = item.type === 'toggle'
+      ? `Global: ${globalVal === 'true' ? 'on' : 'off'}`
+      : `Global: ${globalVal}`;
+
+    if (item.type === 'toggle') {
+      const checked = val === 'true' ? 'checked' : '';
+      return `<div class="setting-card" style="${hasOverride ? 'border-color: var(--blue);' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;">
+          <div class="label">${item.label}</div>
+          ${hasOverride ? `<button onclick="clearServiceSetting('${service}','${item.key}')" style="background:none;border:none;color:var(--fg3);cursor:pointer;font-size:11px;padding:0;" title="Reset to global default">↩ reset</button>` : ''}
+        </div>
+        <label class="toggle"><input type="checkbox" ${checked} onchange="saveServiceSetting('${service}','${item.key}', this.checked)"><span class="slider"></span></label>
+        <div class="desc">${item.desc} · <span style="color:var(--fg3);">${globalHint}</span></div>
+      </div>`;
+    } else {
+      return `<div class="setting-card" style="${hasOverride ? 'border-color: var(--blue);' : ''}">
+        <div style="display:flex;justify-content:space-between;align-items:start;">
+          <div class="label">${item.label}</div>
+          ${hasOverride ? `<button onclick="clearServiceSetting('${service}','${item.key}')" style="background:none;border:none;color:var(--fg3);cursor:pointer;font-size:11px;padding:0;" title="Reset to global default">↩ reset</button>` : ''}
+        </div>
+        <input type="number" class="setting-input" value="${hasOverride ? val : ''}" placeholder="${globalVal}" min="${item.min}" max="${item.max}" step="${item.step}" onchange="saveServiceSetting('${service}','${item.key}', this.value)">
+        <div class="desc">${item.desc} · <span style="color:var(--fg3);">${globalHint}</span></div>
+      </div>`;
+    }
+  }).join('');
+}
+
+async function saveServiceSetting(service, key, value) {
+  const payload = {};
+  payload[key] = typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value);
+  await fetch(API + '/api/service-settings/' + encodeURIComponent(service), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  // Update local cache
+  if (!allServiceSettings[service]) allServiceSettings[service] = {};
+  allServiceSettings[service][key] = payload[key];
+  renderServiceSettings();
+  const badge = document.getElementById('settings-saved');
+  badge.style.opacity = '1';
+  setTimeout(() => badge.style.opacity = '0', 1500);
+}
+
+async function clearServiceSetting(service, key) {
+  const payload = {};
+  payload[key] = null;
+  await fetch(API + '/api/service-settings/' + encodeURIComponent(service), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (allServiceSettings[service]) delete allServiceSettings[service][key];
+  renderServiceSettings();
+  const badge = document.getElementById('settings-saved');
+  badge.style.opacity = '1';
+  setTimeout(() => badge.style.opacity = '0', 1500);
+}
+
+async function loadServices() {
+  const data = await api('/api/services');
+  const services = data.services || {};
+  const repos = data.repos || {};
+  const list = document.getElementById('services-list');
+
+  const names = Object.keys(services);
+  if (!names.length) { list.innerHTML = '<div class="empty">No services configured</div>'; return; }
+
+  list.innerHTML = '<div class="settings-grid">' + names.map(name => {
+    const svc = services[name];
+    const q = esc(svc.datadog_query || '');
+    const regions = (svc.regions || []).join(', ');
+    const paths = (svc.code_paths || []).map(cp =>
+      `<code style="font-size:11px;">${esc(cp.repo)}:${esc(cp.path)}</code>`
+    ).join('<br>');
+    return `<div class="setting-card">
+      <div style="display:flex;justify-content:space-between;align-items:start;">
+        <div class="label">${esc(name)}</div>
+        <button onclick="removeService('${esc(name)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;" title="Remove service">✕</button>
+      </div>
+      <div style="color:var(--fg3);font-size:11px;margin-top:4px;"><code>${q}</code></div>
+      <div style="color:var(--fg3);font-size:11px;margin-top:4px;">Regions: ${regions}</div>
+      <div style="margin-top:4px;">${paths || '<span style="color:var(--fg3);font-size:11px;">No code paths</span>'}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+
+function autoFillService() {
+  const name = document.getElementById('svc-name').value.trim();
+  if (!name) return;
+  document.getElementById('svc-query').value = `service:${name} status:error`;
+}
+
+async function addService() {
+  const name = document.getElementById('svc-name').value.trim();
+  const query = document.getElementById('svc-query').value.trim();
+  const regions = document.getElementById('svc-regions').value.split(',').map(s => s.trim()).filter(Boolean);
+  const pathsRaw = document.getElementById('svc-codepaths').value.trim();
+
+  if (!name || !query) { alert('Service name and Datadog query are required.'); return; }
+
+  const code_paths = pathsRaw.split('\n').map(line => {
+    const [repo, ...rest] = line.trim().split(':');
+    return repo && rest.length ? { repo: repo.trim(), path: rest.join(':').trim() } : null;
+  }).filter(Boolean);
+
+  await fetch(API + '/api/services', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, datadog_query: query, regions, code_paths }),
+  });
+
+  document.getElementById('svc-name').value = '';
+  document.getElementById('svc-query').value = '';
+  document.getElementById('svc-codepaths').value = '';
+  loadServices();
+}
+
+async function removeService(name) {
+  if (!confirm(`Remove service "${name}" from monitoring?`)) return;
+  await fetch(API + '/api/services/' + encodeURIComponent(name), { method: 'DELETE' });
+  loadServices();
+}
+
+async function loadSubscriptions() {
+  const data = await api('/api/services');
+  const services = Object.keys(data.services || {});
+  const subs = await api('/api/subscriptions');
+
+  // Populate service dropdown
+  const sel = document.getElementById('sub-service');
+  if (sel.options.length <= 1) {
+    sel.innerHTML = '';
+    for (const svc of services) {
+      const opt = document.createElement('option');
+      opt.value = svc; opt.textContent = svc;
+      sel.appendChild(opt);
+    }
+  }
+
+  // Group subscriptions by service
+  const byService = {};
+  for (const svc of services) byService[svc] = [];
+  for (const sub of subs) {
+    if (!byService[sub.service]) byService[sub.service] = [];
+    byService[sub.service].push(sub);
+  }
+
+  const grid = document.getElementById('subscriptions-grid');
+  grid.innerHTML = '<div class="settings-grid">' + Object.entries(byService).map(([svc, members]) => {
+    const memberList = members.length
+      ? members.map(m => `<div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+          <span style="color:var(--fg);">${esc(m.display_name || m.slack_user_id)}</span>
+          <code style="font-size:11px;color:var(--fg3);">${esc(m.slack_user_id)}</code>
+          <button onclick="removeSubscription(${m.id})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:12px;padding:0;">✕</button>
+        </div>`).join('')
+      : '<div style="color:var(--fg3);font-size:12px;margin-top:6px;">No subscribers</div>';
+    return `<div class="setting-card">
+      <div class="label">${esc(svc)}</div>
+      ${memberList}
+    </div>`;
+  }).join('') + '</div>';
+}
+
+async function addSubscription() {
+  const service = document.getElementById('sub-service').value;
+  const name = document.getElementById('sub-name').value.trim();
+  const url = document.getElementById('sub-url').value.trim();
+
+  // Extract Slack user ID from profile URL
+  const match = url.match(/\/team\/(U[A-Z0-9]+)/);
+  if (!match) { alert('Invalid Slack profile URL. Expected format: https://your-workspace.slack.com/team/U...'); return; }
+  const slackUserId = match[1];
+
+  await fetch(API + '/api/subscriptions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service, slack_user_id: slackUserId, display_name: name }),
+  });
+  document.getElementById('sub-name').value = '';
+  document.getElementById('sub-url').value = '';
+  loadSubscriptions();
+}
+
+async function removeSubscription(id) {
+  await fetch(API + '/api/subscriptions/' + id, { method: 'DELETE' });
+  loadSubscriptions();
+}
+
+async function loadAll() {
+  const stats = await loadStats();
+  loadRuns();
+  loadErrors();
+  loadInvestigations();
+  loadCosts(stats);
+  loadSettings();
+  loadServices();
+  loadServiceSettings();
+  loadSubscriptions();
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,28 @@
+# Provider configuration — pick your adapters
+providers:
+  source:
+    type: datadog
+  doc_sink:
+    type: markdown        # or: notion
+  tracker:
+    type: github          # or: linear
+  notifier:
+    type: console         # or: slack
+
+# Services to monitor for errors
+services:
+  my-api:
+    datadog_query: "service:my-api status:error"
+    regions: [us]
+    code_paths:
+      - repo: backend
+        path: src/my_api
+
+# Local repo clones (used for code context during investigation)
+repos:
+  backend: /path/to/your/backend
+
+# Error patterns to ignore (substring match)
+ignore_patterns:
+  - "DeprecationWarning"
+  - "health_check"

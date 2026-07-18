@@ -12,6 +12,8 @@ Nitpick turns recurring production errors into deduplicated, actionable investig
 
 > Nitpick is alpha software. Review every generated issue and PR before merging. Automatic fixes are disabled by default.
 
+![Nitpick dashboard demo](docs/dashboard-demo.png)
+
 ## Why Nitpick
 
 Incident response often starts with the same manual loop: search logs, find the relevant code, write an RCA, file a ticket, and decide whether a fix is safe. Nitpick automates that loop while keeping the evidence, budget, and proposed change visible to the team.

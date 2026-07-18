@@ -1,5 +1,7 @@
 # Nitpick
 
+![Nitpick workflow preview](docs/social-preview.svg)
+
 [![CI](https://github.com/FlyLikeAPenguin/nitpick/actions/workflows/ci.yml/badge.svg)](https://github.com/FlyLikeAPenguin/nitpick/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
@@ -27,11 +29,7 @@ Before using Nitpick with production logs, review the data flow: matching log en
 
 ## Project status
 
-Nitpick is an actively developed alpha project. The core pipeline, local dashboard, Datadog source, GitHub/Linear trackers, Markdown/Notion sinks, and console/Slack notifiers are implemented. See [issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for current work and limitations.
-
-![Nitpick workflow preview](docs/social-preview.svg)
-
-See the [roadmap](docs/ROADMAP.md) for planned work and the [GitHub issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for implementation-level tasks.
+Nitpick is an actively developed alpha project. The core pipeline, local dashboard, Datadog source, GitHub/Linear trackers, Markdown/Notion sinks, and console/Slack notifiers are implemented. See the [roadmap](docs/ROADMAP.md) for the direction of the project and [issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for implementation-level work.
 
 ## How it works
 

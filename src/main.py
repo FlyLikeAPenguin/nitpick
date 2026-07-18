@@ -9,6 +9,7 @@ from uuid import uuid4
 from .cache import ErrorCache
 from .config import Config, load_config, validate_config
 from .dashboard import run_dashboard
+from .demo import demo_config, seed_demo_data
 from .fingerprint import build_dd_link, fingerprint_and_group
 from .fixer import attempt_fix, cleanup_stale_worktrees
 from .investigator import investigate
@@ -234,9 +235,10 @@ def run_pipeline(config: Config) -> None:
 
 def cli() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python -m src.main <run|serve>")
+        print("Usage: python -m src.main <run|serve|demo>")
         print("  run   — execute one pipeline cycle")
         print("  serve — start the monitoring dashboard")
+        print("  demo  — seed a credential-free dashboard demo")
         sys.exit(1)
 
     config = load_config()
@@ -253,9 +255,15 @@ def cli() -> None:
     elif command == "serve":
         run_dashboard(config)
 
+    elif command == "demo":
+        demo_cfg = demo_config(config)
+        seed_demo_data(demo_cfg.db_path)
+        print(f"Demo data ready at {demo_cfg.db_path}")
+        run_dashboard(demo_cfg)
+
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python -m src.main <run|serve>")
+        print("Usage: python -m src.main <run|serve|demo>")
         sys.exit(1)
 
 

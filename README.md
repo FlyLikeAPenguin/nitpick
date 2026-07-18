@@ -120,6 +120,9 @@ NITPICK_DRY_RUN=true python -m src.main run
 
 # Start dashboard
 python -m src.main serve
+
+# Preview the dashboard without Datadog or Claude credentials
+python -m src.main demo
 ```
 
 ## Configuration
@@ -262,6 +265,7 @@ Create a timer unit for the pipeline and a service unit for the dashboard.
 ├── .env                        # Credentials (not committed)
 ├── src/
 │   ├── main.py                 # CLI + pipeline orchestrator
+│   ├── demo.py                 # Credential-free dashboard demo data
 │   ├── config.py               # Env + YAML config loader
 │   ├── models.py               # Dataclasses
 │   ├── fingerprint.py          # Error normalisation + hashing

@@ -1,12 +1,56 @@
 [project]
 name = "nitpick"
 version = "0.1.0"
+description = "Safe, reviewable incident triage from Datadog errors to Claude investigations"
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.12"
+keywords = ["incident-response", "observability", "sre", "datadog", "claude-code", "root-cause-analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Bug Tracking",
+]
 dependencies = [
     "requests>=2.31",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/FlyLikeAPenguin/nitpick"
+Repository = "https://github.com/FlyLikeAPenguin/nitpick"
+Issues = "https://github.com/FlyLikeAPenguin/nitpick/issues"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
 [project.scripts]
 nitpick = "src.main:cli"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

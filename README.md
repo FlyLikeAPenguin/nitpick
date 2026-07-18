@@ -1,6 +1,37 @@
 # Nitpick
 
-Automated error monitoring and investigation powered by Claude. Fetches errors from your log provider, investigates each with Claude CLI, documents findings, files issues, and optionally opens fix PRs — all on autopilot.
+[![CI](https://github.com/FlyLikeAPenguin/nitpick/actions/workflows/ci.yml/badge.svg)](https://github.com/FlyLikeAPenguin/nitpick/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/)
+
+Datadog errors → Claude root-cause analysis → GitHub issues and reviewable fix PRs.
+
+Nitpick turns recurring production errors into deduplicated, actionable investigations. It runs locally, keeps costs visible, and never changes a live checkout during investigation.
+
+> Nitpick is alpha software. Review every generated issue and PR before merging. Automatic fixes are disabled by default.
+
+## Why Nitpick
+
+Incident response often starts with the same manual loop: search logs, find the relevant code, write an RCA, file a ticket, and decide whether a fix is safe. Nitpick automates that loop while keeping the evidence, budget, and proposed change visible to the team.
+
+- **Less duplicate work** — fingerprints group recurring errors before they consume investigation budget.
+- **Actionable output** — each investigation can produce an RCA, issue, notification, and optional fix PR.
+- **Local-first** — the dashboard and Markdown RCA sink run locally; provider credentials stay in environment variables.
+- **Reviewable automation** — fixes happen in isolated git worktrees and are delivered as pull requests, never deployed directly.
+
+## Safety model
+
+Nitpick investigates errors with read-only access to configured code paths. Automatic fixes are **off by default**. To enable them, open the dashboard and turn on **Settings → Auto-fix & PR** for the relevant scope. A fix is still limited by a separate Claude budget, an isolated worktree, and a 250-line diff ceiling.
+
+Before using Nitpick with production logs, review the data flow: matching log entries and configured source-code paths are supplied to Claude CLI, while provider APIs receive only the records needed to create the configured RCA, issue, or notification.
+
+## Project status
+
+Nitpick is an actively developed alpha project. The core pipeline, local dashboard, Datadog source, GitHub/Linear trackers, Markdown/Notion sinks, and console/Slack notifiers are implemented. See [issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for current work and limitations.
+
+![Nitpick workflow preview](docs/social-preview.svg)
+
+See the [roadmap](docs/ROADMAP.md) for planned work and the [GitHub issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for implementation-level tasks.
 
 ## How it works
 
@@ -48,12 +79,13 @@ With the defaults, you need only **Datadog + Claude CLI + `gh`** to get full val
 ## Quickstart
 
 ```bash
-git clone <this-repo> && cd nitpick
+git clone https://github.com/FlyLikeAPenguin/nitpick.git && cd nitpick
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 cp .env.example .env
-# Edit .env — fill in your Datadog keys at minimum
+# Edit .env — fill in your Datadog keys at minimum.
+# Start with NITPICK_DRY_RUN=true while validating the setup.
 ```
 
 Edit `config.yml` to add your services:
@@ -88,6 +120,9 @@ NITPICK_DRY_RUN=true python -m src.main run
 
 # Start dashboard
 python -m src.main serve
+
+# Preview the dashboard without Datadog or Claude credentials
+python -m src.main demo
 ```
 
 ## Configuration
@@ -171,7 +206,26 @@ Available at `http://localhost:8111` when running `python -m src.main serve`.
 - **Costs** — Daily cost chart for the last 30 days.
 - **Logs** — Live tail of the pipeline log.
 - **Services** — Add/remove monitored services (edits `config.yml`).
-- **Settings** — Toggle investigations, fixes, and notifications globally or per-service.
+- **Settings** — Toggle investigations, auto-fix PRs, and notifications globally or per-service. Auto-fix PRs start disabled.
+
+## Known limitations
+
+- Datadog is currently the only error-source provider.
+- Claude CLI must be installed and authenticated separately.
+- The dashboard is intentionally bound to `127.0.0.1`; it is not an authenticated multi-user web service.
+- Generated fixes are proposals. Your normal review, CI, and deployment controls still apply.
+
+## Development
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+ruff check .
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, issue expectations, and pull-request checklist. Please use [SECURITY.md](SECURITY.md) for vulnerability reports rather than opening a public issue.
 
 ## Scheduling
 
@@ -211,6 +265,7 @@ Create a timer unit for the pipeline and a service unit for the dashboard.
 ├── .env                        # Credentials (not committed)
 ├── src/
 │   ├── main.py                 # CLI + pipeline orchestrator
+│   ├── demo.py                 # Credential-free dashboard demo data
 │   ├── config.py               # Env + YAML config loader
 │   ├── models.py               # Dataclasses
 │   ├── fingerprint.py          # Error normalisation + hashing
@@ -229,6 +284,8 @@ Create a timer unit for the pipeline and a service unit for the dashboard.
 │       └── notifiers/slack.py  # Slack webhook notifier
 ├── static/
 │   └── index.html              # Single-page dashboard UI
+├── tests/                      # Fast unit and integration-boundary tests
+├── .github/                    # CI, issue forms, and PR guidance
 ├── data/
 │   └── error_cache.db          # SQLite database (created on first run)
 └── logs/

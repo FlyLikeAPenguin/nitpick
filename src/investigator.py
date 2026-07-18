@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-import tempfile
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4

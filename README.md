@@ -31,6 +31,17 @@ Before using Nitpick with production logs, review the data flow: matching log en
 
 Nitpick is an actively developed alpha project. The core pipeline, local dashboard, Datadog source, GitHub/Linear trackers, Markdown/Notion sinks, and console/Slack notifiers are implemented. See the [roadmap](docs/ROADMAP.md) for the direction of the project and [issues](https://github.com/FlyLikeAPenguin/nitpick/issues) for implementation-level work.
 
+## Where Nitpick is going
+
+The first release focuses on a dependable local Datadog + Claude workflow. The longer-term goal is a source-agnostic, reviewable incident layer that fits the tools and deployment model each team already has:
+
+- **More sources** — Sentry, OpenTelemetry/OTLP, CloudWatch, webhooks, and fixture inputs.
+- **More sinks** — Jira, richer RCA destinations, PagerDuty-style notifications, and generic webhooks.
+- **More agent backends** — first-class Codex support alongside Claude CLI, with provider-neutral capability and cost controls.
+- **More ways to deploy** — Docker/Compose, production-oriented systemd/launchd setups, and eventually stable self-hosted or hosted operation.
+
+The [roadmap](docs/ROADMAP.md) explains what is shipped, what we are hardening now, and how these future tracks fit together.
+
 ## How it works
 
 ```
@@ -58,12 +69,14 @@ A local web dashboard at `localhost:8111` shows errors, investigations, runs, co
 
 Nitpick uses a pluggable provider model. You choose an adapter for each role via `config.yml`:
 
-| Role | Default | Alternative | What it does |
+| Role | Current | Roadmap | What it does |
 |---|---|---|---|
-| **Error source** | `datadog` | — | Fetches error logs |
-| **Doc sink** | `markdown` | `notion` | Creates RCA documentation |
-| **Issue tracker** | `github` | `linear` | Creates and manages issues |
-| **Notifier** | `console` | `slack` | Sends notifications |
+| **Error source** | `datadog` | Sentry, OpenTelemetry/OTLP, CloudWatch, webhooks, fixtures | Fetches error logs |
+| **Doc sink** | `markdown`, `notion` | Richer RCA destinations and templates | Creates RCA documentation |
+| **Issue tracker** | `github`, `linear` | Jira and additional project adapters | Creates and manages issues |
+| **Notifier** | `console`, `slack` | PagerDuty-style notifications and generic webhooks | Sends notifications |
+| **Agent backend** | Claude CLI | Codex and a provider-neutral agent runner | Investigates errors and proposes actions |
+| **Deployment** | Local process + dashboard | Docker/Compose and production-ready self-hosted operation | Runs the pipeline reliably |
 
 With the defaults, you need only **Datadog + Claude CLI + `gh`** to get full value — no other SaaS accounts required. RCAs are written as local Markdown files and issues are filed as GitHub Issues.
 

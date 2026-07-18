@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from .config import Config
 from .investigator import parse_claude_output
@@ -190,11 +188,6 @@ def attempt_fix(
             investigation.claude_output_tokens += fix_usage.get("output_tokens", 0)
 
         # Validate diff size
-        diff_stat = subprocess.run(
-            ["git", "diff", "--stat", f"origin/{default_branch}"],
-            cwd=str(worktree_path), capture_output=True, text=True, timeout=10,
-        )
-
         diff_numstat = subprocess.run(
             ["git", "diff", "--numstat", f"origin/{default_branch}"],
             cwd=str(worktree_path), capture_output=True, text=True, timeout=10,

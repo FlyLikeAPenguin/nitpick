@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 import yaml
 
 from .cache import ErrorCache
-from .config import Config, PROJECT_ROOT
+from .config import PROJECT_ROOT, Config
 
 log = logging.getLogger(__name__)
 

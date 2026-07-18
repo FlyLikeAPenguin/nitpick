@@ -92,7 +92,9 @@ CREATE INDEX IF NOT EXISTS idx_run_log_started ON run_log(started_at);
 # Defaults for settings that can be toggled from the dashboard
 SETTINGS_DEFAULTS: dict[str, str] = {
     "investigations_enabled": "true",
-    "fixes_enabled": "true",
+    # Creating branches, pushing code, and opening PRs always requires an
+    # explicit opt-in from the dashboard.
+    "fixes_enabled": "false",
     "slack_enabled": "true",
     "max_errors_per_run": "10",
     "max_investigations_per_day": "50",

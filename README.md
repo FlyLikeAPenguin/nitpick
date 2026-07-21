@@ -23,6 +23,27 @@ Incident response often starts with the same manual loop: search logs, find the 
 - **Local-first** — the dashboard and Markdown RCA sink run locally; provider credentials stay in environment variables.
 - **Reviewable automation** — fixes happen in isolated git worktrees and are delivered as pull requests, never deployed directly.
 
+## In production
+
+Nitpick has run continuously against the live error logs of a voice AI company since 17 May 2026. These are that deployment's numbers as of 21 July 2026 — 65 days and 1,258 pipeline runs across 11 monitored services.
+
+| | |
+|---|---|
+| Error log entries scanned | 40,529 |
+| Unique errors identified | 1,437 |
+| Distinct errors tracked after dedup | 381 |
+| Investigations completed | 1,378 |
+| Issues filed automatically | 1,030 |
+| RCA documents written | 919 |
+| Fix PRs opened / merged | 21 / 6 |
+| Claude spend | $1,137.99 (~$0.81 per investigation) |
+
+The first three rows are the point: fingerprinting collapses roughly 40,000 raw log entries into a few hundred distinct problems, and only those reach the agent. Without that step the same handful of recurring errors would consume the entire investigation budget every run.
+
+Investigations triaged as 73 high, 286 medium, and 1,019 low severity, with 55% judged actionable and 4.4% judged auto-fixable.
+
+Of the 21 fix PRs opened, 6 merged and 12 were closed unmerged. That ratio is the system working as designed rather than a shortfall: fixes arrive as pull requests precisely so a wrong one costs a review and nothing more. Automatic fixes remain off by default for the same reason.
+
 ## Safety model
 
 Nitpick investigates errors with read-only access to configured code paths. Automatic fixes are **off by default**. To enable them, open the dashboard and turn on **Settings → Auto-fix & PR** for the relevant scope. A fix is still limited by a separate Claude budget, an isolated worktree, and a 250-line diff ceiling.

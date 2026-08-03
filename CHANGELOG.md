@@ -4,6 +4,7 @@ All notable changes to Nitpick are documented here.
 
 ## [Unreleased]
 
+- Record recurrences of an already-tracked error on the existing issue instead of filing a new one.
 - Add safe-by-default automatic-fix controls.
 - Add tests, CI, contributor guidance, and security reporting guidance.
 - Improve the README with setup, safety, limitations, and development documentation.

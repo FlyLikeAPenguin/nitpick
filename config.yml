@@ -26,6 +26,11 @@ repos:
 ignore_patterns:
   - "DeprecationWarning"
   - "health_check"
+  # Tracer transport errors are the agent's own output, not your application's.
+  # They recur with an embedded timestamp, agent address and endpoint path, so
+  # each occurrence fingerprints differently and opens a fresh investigation
+  # that always reaches the same verdict: transient, external, not actionable.
+  - "Datadog Tracer"
 
 # Automatic fix branches and PRs are disabled by default.
 # Enable them deliberately from the dashboard after reviewing the safety model.

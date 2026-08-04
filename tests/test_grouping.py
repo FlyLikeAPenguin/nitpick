@@ -68,6 +68,65 @@ def test_ignore_patterns_are_case_insensitive() -> None:
     assert groups == []
 
 
+def test_tracer_noise_is_dropped_by_the_shipped_ignore_pattern() -> None:
+    """Tracer transport failures are the agent's own output, not the service's.
+
+    They are always transient and external, so investigating them costs a full
+    agent run to reach a verdict that is known in advance.
+    """
+    logs = [
+        log(
+            '2026/01/02 03:04:05 Datadog Tracer v2.0.0 ERROR: lost 5 traces: '
+            'Post "http://127.0.0.1:8126/v0.4/traces": context deadline exceeded '
+            "(occurred: 02 Jan 26 03:04 UTC)"
+        ),
+        log(
+            "2026/01/02 03:09:05 Datadog Tracer v2.0.0 ERROR: Error sending stats "
+            "payload: Bad Gateway (occurred: 02 Jan 26 03:09 UTC)"
+        ),
+        log("connection refused"),
+    ]
+
+    groups = fingerprint_and_group(logs, "payments", "us", ignore_patterns=["Datadog Tracer"])
+
+    assert len(groups) == 1
+    assert groups[0].message_template == "connection refused"
+
+
+def test_tracer_noise_fingerprints_apart_without_the_ignore_pattern() -> None:
+    """Why an ignore pattern is required rather than better normalization.
+
+    The endpoint path and the trailing "(occurred: ...)" clause both vary between
+    occurrences of one underlying outage, and the clause uses a date format the
+    leading-timestamp rule does not match — so the two collapse to distinct
+    templates and each opens its own investigation.
+    """
+    logs = [
+        log(
+            '2026/01/02 03:04:05 Datadog Tracer v2.0.0 ERROR: lost 5 traces: '
+            'Post "http://127.0.0.1:8126/v0.4/traces": context deadline exceeded '
+            "(occurred: 02 Jan 26 03:04 UTC)"
+        ),
+        log(
+            '2026/01/02 03:09:05 Datadog Tracer v2.0.0 ERROR: lost 9 traces: '
+            'Post "http://127.0.0.1:8126/v0.6/stats": context deadline exceeded '
+            "(occurred: 02 Jan 26 03:09 UTC)"
+        ),
+    ]
+
+    assert len(fingerprint_and_group(logs, "payments", "us")) == 2
+
+
+def test_tracer_pattern_does_not_suppress_application_errors() -> None:
+    """The pattern matches the tracer's own log prefix, not every mention of the
+    vendor, so a service failing to reach Datadog is still investigated."""
+    logs = [log("failed to publish metric to Datadog: connection refused")]
+
+    groups = fingerprint_and_group(logs, "payments", "us", ignore_patterns=["Datadog Tracer"])
+
+    assert len(groups) == 1
+
+
 def test_same_message_from_different_services_does_not_group() -> None:
     payments = fingerprint_and_group([log("connection refused")], "payments", "us")
     billing = fingerprint_and_group([log("connection refused")], "billing", "us")

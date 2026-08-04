@@ -42,7 +42,7 @@ def build_investigation_prompt(
             lines.append("\n".join(parts))
         recent_section = f"""
 ## Recent Investigations for {error.service}
-The following errors in this service have ALREADY been investigated. If the error you are investigating shares the same root cause as one below, DO NOT recommend a duplicate fix. Instead, reference the existing issue URL in your output and set is_fixable=false.
+The following errors in this service have ALREADY been investigated. If the error you are investigating shares the same root cause as one below, it is a duplicate: set is_duplicate=true, put that investigation's issue URL in duplicate_of_url, and set is_fixable=false.
 
 {chr(10).join(lines)}
 """
@@ -81,6 +81,16 @@ This is an investigation only. You MUST NOT modify, create, or delete any files 
    - Could it be done safely in under 250 lines?
    - Or is the error transient, external, config-related, or too risky for an automated fix?
    Include this reasoning in your output.
+7. Decide whether this error is already tracked. It is a duplicate if an existing
+   issue — one listed above, or one you find while investigating — covers the same
+   root cause, whether or not that issue is already fixed or in review. If so, set
+   is_duplicate=true and put the canonical issue's URL in duplicate_of_url; a
+   recurrence note is added to that issue instead of a new one being filed. Only
+   claim a duplicate when you have the URL of the issue it duplicates.
+
+   is_duplicate is independent of is_actionable: a duplicate of a real, unfixed bug
+   is still actionable. Set is_actionable=false only when the error itself needs no
+   action (expected, transient, or outside our control).
 
 ## Required Output
 After completing your investigation, output ONLY a JSON object (no markdown fences):
@@ -88,6 +98,8 @@ After completing your investigation, output ONLY a JSON object (no markdown fenc
   "root_cause": "Clear explanation of why this error occurs",
   "is_actionable": true/false,
   "is_fixable": true/false,
+  "is_duplicate": true/false,
+  "duplicate_of_url": "<URL of the existing issue, or empty string>",
   "estimated_fix_lines": <number or null>,
   "severity": "critical|high|medium|low",
   "affected_files": ["path/to/file.py"],
@@ -209,13 +221,23 @@ def investigate(
         investigation.root_cause = data.get("root_cause", "")
         investigation.is_actionable = bool(data.get("is_actionable", False))
         investigation.is_fixable = bool(data.get("is_fixable", False))
+        investigation.duplicate_of_url = (data.get("duplicate_of_url") or "").strip()
+        # A duplicate claim without a target issue is unusable — we would have
+        # nowhere to record the recurrence — so it falls back to filing normally.
+        investigation.is_duplicate = bool(
+            data.get("is_duplicate", False) and investigation.duplicate_of_url
+        )
+        if data.get("is_duplicate") and not investigation.duplicate_of_url:
+            log.warning(
+                "Investigation for %s claimed duplicate but gave no issue URL; filing normally",
+                error.fingerprint,
+            )
         investigation.estimated_fix_lines = data.get("estimated_fix_lines")
         investigation.severity = data.get("severity", "medium")
         investigation.affected_files = data.get("affected_files", [])
         investigation.fix_description = data.get("fix_description", "")
         investigation.recommendation = data.get("recommendation", "")
-        investigation.notion_page_url = data.get("notion_page_url", "")
-        investigation.linear_issue_url = data.get("linear_issue_url", "")
+        # notion_page_url / linear_issue_url are set by the pipeline, not the model.
         investigation.claude_cost_usd = usage.get("cost_usd", 0.0)
         investigation.claude_input_tokens = usage.get("input_tokens", 0)
         investigation.claude_output_tokens = usage.get("output_tokens", 0)
@@ -223,9 +245,10 @@ def investigate(
         investigation.completed_at = datetime.now(timezone.utc)
 
         log.info(
-            "Investigation complete: actionable=%s fixable=%s severity=%s cost=$%.4f",
+            "Investigation complete: actionable=%s fixable=%s duplicate=%s severity=%s cost=$%.4f",
             investigation.is_actionable,
             investigation.is_fixable,
+            investigation.duplicate_of_url if investigation.is_duplicate else False,
             investigation.severity,
             investigation.claude_cost_usd,
         )

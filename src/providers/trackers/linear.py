@@ -95,6 +95,34 @@ class LinearTracker:
             log.warning("Failed to create Linear issue: %s", e)
             return ""
 
+    def comment(self, issue_ref: str, body: str) -> None:
+        """Add a comment to an existing issue."""
+        try:
+            identifier = self._extract_issue_identifier(issue_ref)
+            if not identifier:
+                log.warning("Could not extract identifier from Linear ref: %s", issue_ref)
+                return
+
+            issue_id = self._get_issue_id(identifier)
+            if not issue_id:
+                log.warning("Could not find Linear issue for identifier: %s", identifier)
+                return
+
+            data = self._graphql(
+                """mutation($input: CommentCreateInput!) {
+                    commentCreate(input: $input) {
+                        success
+                    }
+                }""",
+                {"input": {"issueId": issue_id, "body": body[:10000]}},
+            )
+            if data.get("commentCreate", {}).get("success"):
+                log.info("Commented on Linear issue %s", identifier)
+            else:
+                log.warning("Linear commentCreate reported failure for %s", identifier)
+        except Exception as e:
+            log.warning("Failed to comment on Linear issue %s: %s", issue_ref, e)
+
     def attach_pr(self, issue_ref: str, pr_url: str, pr_title: str) -> None:
         """Attach a PR link and transition to In Review."""
         try:

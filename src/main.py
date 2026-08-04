@@ -13,7 +13,7 @@ from .demo import demo_config, seed_demo_data
 from .fingerprint import build_dd_link, fingerprint_and_group
 from .fixer import attempt_fix, cleanup_stale_worktrees
 from .investigator import investigate
-from .models import RunStats
+from .models import ErrorGroup, Investigation, RunStats
 from .providers import build_doc_sink, build_notifier, build_source, build_tracker
 
 log = logging.getLogger("nitpick")
@@ -30,6 +30,27 @@ def setup_logging(config: Config) -> None:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
         handlers=handlers,
     )
+
+
+def recurrence_comment(group: ErrorGroup, investigation: Investigation) -> str:
+    """Body of the note added to an existing issue when an error recurs."""
+    lines = [
+        "**Recurrence detected by nitpick** — same root cause as this issue, so no new issue was filed.",
+        "",
+        f"- Service: {group.service} ({group.region})",
+        f"- Fingerprint: `{group.fingerprint}`",
+        f"- Occurrences: {group.occurrence_count} since {group.first_seen}",
+        f"- Severity: {investigation.severity}",
+    ]
+    if group.dd_query_link:
+        lines.append(f"- [Datadog logs]({group.dd_query_link})")
+    if investigation.notion_page_url:
+        lines.append(f"- [RCA doc]({investigation.notion_page_url})")
+    if investigation.root_cause:
+        lines.extend(["", "## Root Cause", investigation.root_cause])
+    if investigation.recommendation:
+        lines.extend(["", "## Recommendation", investigation.recommendation])
+    return "\n".join(lines)
 
 
 def run_pipeline(config: Config) -> None:
@@ -170,18 +191,41 @@ def run_pipeline(config: Config) -> None:
                     except Exception as e:
                         log.warning("Doc sink create failed: %s", e)
 
-                # File issue via tracker
+                # File issue via tracker. An error whose root cause is already
+                # tracked gets a recurrence note on the existing issue instead
+                # of a new one — the same error checked twice must not produce
+                # two tickets.
+                linked_existing = False
                 if tracker and tracker.is_configured and investigation.is_actionable:
-                    try:
-                        issue_url = tracker.create(group, investigation)
-                        investigation.linear_issue_url = issue_url
-                        stats.issues_created += 1
-                    except Exception as e:
-                        log.warning("Tracker create failed: %s", e)
+                    if investigation.is_duplicate:
+                        try:
+                            tracker.comment(
+                                investigation.duplicate_of_url,
+                                recurrence_comment(group, investigation),
+                            )
+                            investigation.linear_issue_url = investigation.duplicate_of_url
+                            linked_existing = True
+                            stats.duplicates_linked += 1
+                            log.info(
+                                "Duplicate of %s — commented instead of filing (fp=%s)",
+                                investigation.duplicate_of_url, group.fingerprint,
+                            )
+                        except Exception as e:
+                            log.warning("Tracker comment failed: %s", e)
+                    else:
+                        try:
+                            issue_url = tracker.create(group, investigation)
+                            investigation.linear_issue_url = issue_url
+                            if issue_url:
+                                stats.issues_created += 1
+                        except Exception as e:
+                            log.warning("Tracker create failed: %s", e)
 
-                # Attempt fix if feasible
+                # Attempt fix if feasible. Duplicates are excluded: the tracked
+                # issue owns the fix, and a second PR would compete with it.
                 if (
                     svc_fixes
+                    and not investigation.is_duplicate
                     and investigation.is_fixable
                     and investigation.estimated_fix_lines
                     and investigation.estimated_fix_lines < 250
@@ -209,27 +253,20 @@ def run_pipeline(config: Config) -> None:
                 cache.save_investigation(investigation)
                 cache.update_error_status(group.fingerprint, new_status)
 
-                # Notify
-                if svc_notify and notifier and investigation.is_actionable:
-                    already_reported = (
-                        investigation.linear_issue_url
-                        and any(
-                            ri.get("linear_issue_url") == investigation.linear_issue_url
-                            for ri in recent_investigations or []
-                        )
-                    )
-                    if not already_reported:
-                        subscribers = cache.get_subscribers_for_service(service_name)
-                        notifier.notify(group, investigation, config, subscribers)
+                # Notify. Recurrences of an already-tracked error stay quiet —
+                # the issue they were added to was announced when it was filed.
+                if svc_notify and notifier and investigation.is_actionable and not linked_existing:
+                    subscribers = cache.get_subscribers_for_service(service_name)
+                    notifier.notify(group, investigation, config, subscribers)
 
     run_completed = datetime.now(timezone.utc)
     cache.log_run(run_id, run_started, run_completed, stats.as_dict())
 
     log.info(
-        "=== Run %s complete: fetched=%d new=%d investigated=%d issues=%d prs=%d cost=$%.4f ===",
+        "=== Run %s complete: fetched=%d new=%d investigated=%d issues=%d dupes=%d prs=%d cost=$%.4f ===",
         run_id[:8], stats.errors_fetched, stats.new_errors,
-        stats.investigated, stats.issues_created, stats.prs_created,
-        stats.total_cost_usd,
+        stats.investigated, stats.issues_created, stats.duplicates_linked,
+        stats.prs_created, stats.total_cost_usd,
     )
 
 

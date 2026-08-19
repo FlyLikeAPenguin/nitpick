@@ -95,6 +95,8 @@ def run_pipeline(config: Config) -> None:
         # stage that opens PRs against real repos requires explicit enabling.
         svc_fixes = svc_settings.get("fixes_enabled", "false") == "true"
         svc_notify = svc_settings.get("slack_enabled", "true") == "true"
+        svc_docs = svc_settings.get("docs_enabled", "true") == "true"
+        svc_issues = svc_settings.get("issues_enabled", "true") == "true"
         svc_budget = None
         if config.claude_max_budget is not None:
             svc_budget = float(
@@ -102,8 +104,9 @@ def run_pipeline(config: Config) -> None:
             )
 
         log.info(
-            "Service %s: investigations=%s fixes=%s notify=%s budget=%s",
-            service_name, svc_investigations, svc_fixes, svc_notify,
+            "Service %s: investigations=%s docs=%s issues=%s fixes=%s notify=%s budget=%s",
+            service_name, svc_investigations, svc_docs, svc_issues, svc_fixes,
+            svc_notify,
             f"${svc_budget:.2f}" if svc_budget is not None else "uncapped",
         )
 
@@ -192,7 +195,7 @@ def run_pipeline(config: Config) -> None:
                 new_status = "documented"
 
                 # Create RCA documentation via doc sink
-                if doc_sink and doc_sink.is_configured:
+                if svc_docs and doc_sink and doc_sink.is_configured:
                     try:
                         doc_url = doc_sink.create(group, investigation)
                         investigation.notion_page_url = doc_url
@@ -204,7 +207,7 @@ def run_pipeline(config: Config) -> None:
                 # of a new one — the same error checked twice must not produce
                 # two tickets.
                 linked_existing = False
-                if tracker and tracker.is_configured and investigation.is_actionable:
+                if svc_issues and tracker and tracker.is_configured and investigation.is_actionable:
                     if investigation.is_duplicate:
                         try:
                             tracker.comment(

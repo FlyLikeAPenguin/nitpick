@@ -98,13 +98,25 @@ SETTINGS_DEFAULTS: dict[str, str] = {
     # globally here and per-service on the Services tab.
     "fixes_enabled": "false",
     "slack_enabled": "true",
+    # Documenting and issue-filing are separate stages: a deployment whose
+    # tracker issue already carries the full RCA can turn the doc sink off
+    # without losing the write-up, and a doc-only deployment can file nothing.
+    "docs_enabled": "true",
+    "issues_enabled": "true",
     "max_errors_per_run": "10",
     "max_investigations_per_day": "50",
     "investigation_budget": "2.00",
 }
 
 # Settings that can be overridden per-service
-PER_SERVICE_KEYS = {"investigations_enabled", "fixes_enabled", "slack_enabled", "investigation_budget"}
+PER_SERVICE_KEYS = {
+    "investigations_enabled",
+    "fixes_enabled",
+    "slack_enabled",
+    "docs_enabled",
+    "issues_enabled",
+    "investigation_budget",
+}
 
 
 class ErrorCache:

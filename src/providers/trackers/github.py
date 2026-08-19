@@ -48,6 +48,10 @@ class GitHubTracker:
             "## Recommendation",
             investigation.recommendation or "_None._",
         ]
+        if investigation.fix_description:
+            body_parts.append("")
+            body_parts.append("## Fix Description")
+            body_parts.append(investigation.fix_description)
         if investigation.affected_files:
             body_parts.append("")
             body_parts.append("## Affected Files")

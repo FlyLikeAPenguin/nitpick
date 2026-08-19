@@ -44,15 +44,29 @@ class LinearTracker:
     def create(self, error: ErrorGroup, investigation: Investigation) -> str:
         """Create a Linear issue and return its URL."""
         title = f"[{error.service}] {investigation.root_cause[:60]}"
-        description = (
-            f"**Service:** {error.service} ({error.region})\n"
-            f"**Severity:** {investigation.severity}\n"
-            f"**Occurrences:** {error.occurrence_count}\n"
-            f"**Fingerprint:** `{error.fingerprint}`\n\n"
-            f"## Root Cause\n{investigation.root_cause or '_Not determined._'}\n\n"
-            f"## Impact\n{error.occurrence_count} occurrences since {error.first_seen}\n\n"
-            f"## Recommendation\n{investigation.recommendation or '_None._'}"
-        )
+        # The issue is the RCA of record wherever the doc sink is disabled, so
+        # it carries every section the doc sink would have written.
+        parts = [
+            f"**Service:** {error.service} ({error.region})",
+            f"**Severity:** {investigation.severity}",
+            f"**Occurrences:** {error.occurrence_count}",
+            f"**Fingerprint:** `{error.fingerprint}`",
+            "",
+            "## Root Cause",
+            investigation.root_cause or "_Not determined._",
+            "",
+            "## Impact",
+            f"{error.occurrence_count} occurrences since {error.first_seen}",
+            "",
+            "## Recommendation",
+            investigation.recommendation or "_None._",
+        ]
+        if investigation.fix_description:
+            parts += ["", "## Fix Description", investigation.fix_description]
+        if investigation.affected_files:
+            parts += ["", "## Affected Files"]
+            parts += [f"- `{f}`" for f in investigation.affected_files]
+        description = "\n".join(parts)
         priority = _SEVERITY_PRIORITY.get(investigation.severity, 3)
 
         # Resolve label IDs

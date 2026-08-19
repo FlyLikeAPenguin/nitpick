@@ -51,7 +51,10 @@ For operations after Claude finishes (creating docs, filing issues, attaching PR
 6. On close: DB→documented, doc comment "Fix PR closed"
 
 ### Dashboard settings override pipeline config
-The `settings` table in SQLite holds runtime-adjustable values (investigations_enabled, fixes_enabled, notifications_enabled, max_errors_per_run, max_investigations_per_day, investigation_budget). The pipeline reads these at the start of each run and they override the env var defaults. The dashboard UI provides toggles/inputs for all of these.
+The `settings` table in SQLite holds runtime-adjustable values (investigations_enabled, docs_enabled, issues_enabled, fixes_enabled, notifications_enabled, max_errors_per_run, max_investigations_per_day, investigation_budget). The pipeline reads these at the start of each run and they override the env var defaults. The dashboard UI provides toggles/inputs for all of these.
+
+### Pipeline stages are independently toggleable
+Investigate, document, file, fix and notify are gated separately, globally and per-service, so a deployment can run any subset. Turning `docs_enabled` off leaves the tracker issue as the RCA of record — the issue body carries every section the doc sink would have written (root cause, recommendation, fix description, affected files), so nothing is lost. Turning `issues_enabled` off keeps the doc without a ticket. Provider `type` in config.yml chooses *which* adapter fills a role; these settings choose *whether* that stage runs at all.
 
 ### config.yml is the source of truth for services
 Services (queries, regions, code paths) live in `config.yml`, not the database. The dashboard reads and writes this file directly via `yaml.safe_load`/`yaml.dump`.

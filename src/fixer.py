@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config
-from .investigator import parse_claude_output
+from .investigator import budget_args, parse_claude_output
 from .models import ErrorGroup, Investigation, ServiceConfig
 
 log = logging.getLogger(__name__)
@@ -167,8 +167,9 @@ def attempt_fix(
         cmd = [
             config.claude_bin,
             "-p",
-            "--model", "opus",
-            "--max-budget-usd", "3.00",
+            "--model", config.claude_model,
+            "--effort", config.claude_effort,
+            *budget_args(config.claude_max_budget),
             "--output-format", "json",
             *add_dir_args,
         ]

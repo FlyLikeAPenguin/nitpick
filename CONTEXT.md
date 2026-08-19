@@ -68,7 +68,9 @@ Services (queries, regions, code paths) live in `config.yml`, not the database. 
 Claude sometimes wraps JSON in markdown fences despite being told not to. `_extract_json()` in `investigator.py` handles this: strips code fences, finds the first `{` to last `}`, and parses. If parsing fails, it returns the raw text as `root_cause` with a `parse_error` flag.
 
 ### Dedup context for investigations
-When investigating, the pipeline passes recent investigations for the same service so Claude can avoid recommending duplicate fixes. If the error shares a root cause with a recent investigation, Claude should reference the existing issue URL instead of recommending another fix.
+When investigating, the pipeline passes recent investigations for the same service so Claude can recognise an error it has already seen. If the error shares a root cause with an existing issue — one from that list or one Claude finds itself — it sets `is_duplicate=true` and `duplicate_of_url`, and the pipeline posts a recurrence note on that issue via `tracker.comment()` instead of filing a new one. Duplicates also skip the fix stage and the Slack notification.
+
+`is_duplicate` is deliberately independent of `is_actionable`: a duplicate of a real, unfixed bug is still actionable, so `is_actionable` cannot be used to suppress the ticket. A duplicate claim with no `duplicate_of_url` is downgraded to a normal filing — there would be nowhere to record the recurrence.
 
 ## Stack
 

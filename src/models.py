@@ -47,6 +47,10 @@ class Investigation:
     root_cause: str = ""
     is_actionable: bool = False
     is_fixable: bool = False
+    # A duplicate is still actionable — it just belongs on an existing issue
+    # rather than a new one. duplicate_of_url is the issue it belongs to.
+    is_duplicate: bool = False
+    duplicate_of_url: str = ""
     estimated_fix_lines: int | None = None
     severity: str = "medium"
     affected_files: list[str] = field(default_factory=list)
@@ -71,6 +75,7 @@ class RunStats:
     new_errors: int = 0
     investigated: int = 0
     issues_created: int = 0
+    duplicates_linked: int = 0
     prs_created: int = 0
     total_cost_usd: float = 0.0
 
@@ -80,6 +85,7 @@ class RunStats:
             "new_errors": self.new_errors,
             "investigated": self.investigated,
             "issues_created": self.issues_created,
+            "duplicates_linked": self.duplicates_linked,
             "prs_created": self.prs_created,
             "total_cost_usd": self.total_cost_usd,
         }

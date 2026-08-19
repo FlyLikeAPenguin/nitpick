@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS investigations (
     root_cause          TEXT,
     is_actionable       INTEGER DEFAULT 0,
     is_fixable          INTEGER DEFAULT 0,
+    is_duplicate        INTEGER DEFAULT 0,
+    duplicate_of_url    TEXT DEFAULT '',
     estimated_fix_lines INTEGER,
     severity            TEXT DEFAULT 'medium',
     affected_files      TEXT,
@@ -92,7 +94,9 @@ CREATE INDEX IF NOT EXISTS idx_run_log_started ON run_log(started_at);
 # Defaults for settings that can be toggled from the dashboard
 SETTINGS_DEFAULTS: dict[str, str] = {
     "investigations_enabled": "true",
-    "fixes_enabled": "true",
+    # Opt-in: a service only gets code changes once it is explicitly enabled,
+    # globally here and per-service on the Services tab.
+    "fixes_enabled": "false",
     "slack_enabled": "true",
     "max_errors_per_run": "10",
     "max_investigations_per_day": "50",
@@ -122,6 +126,10 @@ class ErrorCache:
             conn.execute("ALTER TABLE investigations ADD COLUMN pr_status TEXT DEFAULT ''")
             # Backfill: any investigation with a pr_url gets 'open'
             conn.execute("UPDATE investigations SET pr_status = 'open' WHERE pr_url != '' AND pr_url IS NOT NULL")
+        if "is_duplicate" not in cols:
+            conn.execute("ALTER TABLE investigations ADD COLUMN is_duplicate INTEGER DEFAULT 0")
+        if "duplicate_of_url" not in cols:
+            conn.execute("ALTER TABLE investigations ADD COLUMN duplicate_of_url TEXT DEFAULT ''")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -296,12 +304,13 @@ class ErrorCache:
             conn.execute(
                 """INSERT OR REPLACE INTO investigations
                    (id, fingerprint, started_at, completed_at, root_cause,
-                    is_actionable, is_fixable, estimated_fix_lines, severity,
+                    is_actionable, is_fixable, is_duplicate, duplicate_of_url,
+                    estimated_fix_lines, severity,
                     affected_files, fix_description, recommendation,
                     notion_page_url, linear_issue_url, linear_issue_id,
                     pr_url, branch_name, fix_error, claude_cost_usd,
                     claude_input_tokens, claude_output_tokens, status, pr_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     inv.id,
                     inv.fingerprint,
@@ -310,6 +319,8 @@ class ErrorCache:
                     inv.root_cause,
                     int(inv.is_actionable),
                     int(inv.is_fixable),
+                    int(inv.is_duplicate),
+                    inv.duplicate_of_url,
                     inv.estimated_fix_lines,
                     inv.severity,
                     json.dumps(inv.affected_files),

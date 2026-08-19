@@ -72,18 +72,23 @@ class GitHubTracker:
             log.warning("Failed to create GitHub issue: %s", e)
             return ""
 
-    def attach_pr(self, issue_ref: str, pr_url: str, pr_title: str) -> None:
-        """Comment on the issue linking the PR."""
-        body = f"PR opened: [{pr_title}]({pr_url})"
+    def comment(self, issue_ref: str, body: str) -> None:
+        """Add a comment to an existing issue."""
         cmd = ["gh", "issue", "comment", issue_ref, "--body", body]
+        if self._repo:
+            cmd.extend(["--repo", self._repo])
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             if result.returncode != 0:
                 log.warning("gh issue comment failed: %s", result.stderr.strip()[:200])
             else:
-                log.info("Attached PR comment to issue %s", issue_ref)
+                log.info("Commented on GitHub issue %s", issue_ref)
         except Exception as e:
-            log.warning("Failed to attach PR to GitHub issue %s: %s", issue_ref, e)
+            log.warning("Failed to comment on GitHub issue %s: %s", issue_ref, e)
+
+    def attach_pr(self, issue_ref: str, pr_url: str, pr_title: str) -> None:
+        """Comment on the issue linking the PR."""
+        self.comment(issue_ref, f"PR opened: [{pr_title}]({pr_url})")
 
     def transition(self, issue_ref: str, state: str) -> None:
         """Close the issue if *state* is 'done', otherwise no-op."""

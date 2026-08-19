@@ -22,7 +22,12 @@ class Config:
 
     # Claude
     claude_bin: str = "claude"
-    claude_max_budget: float = 2.0
+    claude_model: str = "claude-opus-5"
+    claude_effort: str = "high"
+    # None = no dollar cap. --max-budget-usd only applies to API-key billing;
+    # on a Claude subscription it is inert, so the flag is omitted entirely
+    # unless CLAUDE_MAX_BUDGET is set.
+    claude_max_budget: float | None = None
 
     # Linear
     linear_api_key: str = ""
@@ -58,6 +63,13 @@ class Config:
     static_dir: Path = PROJECT_ROOT / "static"
 
 
+def _optional_float(raw: str | None) -> float | None:
+    """Parse an optional numeric env var. Empty or unset means "no value"."""
+    if raw is None or not raw.strip():
+        return None
+    return float(raw)
+
+
 def load_config(env_path: Path | None = None, config_path: Path | None = None) -> Config:
     env_path = env_path or PROJECT_ROOT / ".env"
     config_path = config_path or PROJECT_ROOT / "config.yml"
@@ -70,7 +82,9 @@ def load_config(env_path: Path | None = None, config_path: Path | None = None) -
         dd_us_api_key=os.getenv("DD_US_API_KEY", ""),
         dd_us_app_key=os.getenv("DD_US_APP_KEY", ""),
         claude_bin=os.getenv("CLAUDE_BIN", "claude"),
-        claude_max_budget=float(os.getenv("CLAUDE_MAX_BUDGET", "2.0")),
+        claude_model=os.getenv("CLAUDE_MODEL", "claude-opus-5"),
+        claude_effort=os.getenv("CLAUDE_EFFORT", "high"),
+        claude_max_budget=_optional_float(os.getenv("CLAUDE_MAX_BUDGET")),
         linear_api_key=os.getenv("LINEAR_API_KEY", ""),
         linear_team_id=os.getenv("LINEAR_TEAM_ID", ""),
         notion_api_key=os.getenv("NOTION_API_KEY", ""),

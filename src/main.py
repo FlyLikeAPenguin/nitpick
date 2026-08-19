@@ -78,15 +78,14 @@ def run_pipeline(config: Config) -> None:
         log.info("DRY RUN mode — will fetch and fingerprint but not investigate/fix")
 
     investigated_this_run = 0
-    daily_limit_hit = False
-    investigations_today = cache.count_investigations_today()
+    limit_notified = False
 
-    if investigations_today >= max_per_day:
+    already_today = cache.count_investigations_today()
+    if already_today >= max_per_day:
         log.info(
-            "Daily investigation limit already reached (%d/%d), skipping investigations",
-            investigations_today, max_per_day,
+            "Daily investigation limit already reached, skipping investigations (%d/%d)",
+            already_today, max_per_day,
         )
-        daily_limit_hit = True
 
     for service_name, service_config in config.services.items():
         svc_settings = cache.resolve_service_settings(service_name)
@@ -152,26 +151,28 @@ def run_pipeline(config: Config) -> None:
                     log.info("Investigations disabled for %s, skipping", service_name)
                     continue
 
-                if daily_limit_hit:
-                    break
-
                 if investigated_this_run >= max_per_run:
                     log.info("Max errors per run (%d) reached, deferring", max_per_run)
                     break
 
-                if (investigations_today + investigated_this_run) >= max_per_day:
-                    log.info(
-                        "Daily investigation limit reached (%d/%d)",
-                        investigations_today + investigated_this_run,
-                        max_per_day,
-                    )
-                    if notifier:
-                        notifier.notify_daily_limit(
-                            investigations_today + investigated_this_run,
-                            max_per_day,
+                # Counted fresh rather than from a snapshot taken at run start:
+                # a run can outlast the UTC day (investigations are slow and the
+                # host sleeps mid-run), and a stale count charges yesterday's
+                # usage against today's budget — halting a run that still has
+                # its full quota. Re-reading also lets a run that crossed
+                # midnight resume once the new day's budget opens up.
+                investigations_today = cache.count_investigations_today()
+                if investigations_today >= max_per_day:
+                    if not limit_notified:
+                        log.info(
+                            "Daily investigation limit reached (%d/%d)",
+                            investigations_today, max_per_day,
                         )
-                    daily_limit_hit = True
+                        if notifier:
+                            notifier.notify_daily_limit(investigations_today, max_per_day)
+                        limit_notified = True
                     break
+                limit_notified = False
 
                 svc_config_copy = config.__class__(**config.__dict__)
                 svc_config_copy.claude_max_budget = svc_budget

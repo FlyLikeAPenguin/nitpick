@@ -5,3 +5,5 @@ __pycache__/
 data/
 logs/
 .claude/
+config.yml
+com.joe.*.plist

@@ -41,6 +41,10 @@ class GitHubTracker:
             f"**Severity:** {investigation.severity}",
             f"**Occurrences:** {error.occurrence_count}",
             f"**Fingerprint:** `{error.fingerprint}`",
+        ]
+        if error.dd_query_link:
+            body_parts.append(f"**Logs:** [Datadog]({error.dd_query_link})")
+        body_parts += [
             "",
             "## Root Cause",
             investigation.root_cause or "_Not determined._",

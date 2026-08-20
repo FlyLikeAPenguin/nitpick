@@ -142,6 +142,8 @@ class ErrorCache:
             conn.execute("ALTER TABLE investigations ADD COLUMN is_duplicate INTEGER DEFAULT 0")
         if "duplicate_of_url" not in cols:
             conn.execute("ALTER TABLE investigations ADD COLUMN duplicate_of_url TEXT DEFAULT ''")
+        if "failure_reason" not in cols:
+            conn.execute("ALTER TABLE investigations ADD COLUMN failure_reason TEXT DEFAULT ''")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -321,8 +323,9 @@ class ErrorCache:
                     affected_files, fix_description, recommendation,
                     notion_page_url, linear_issue_url, linear_issue_id,
                     pr_url, branch_name, fix_error, claude_cost_usd,
-                    claude_input_tokens, claude_output_tokens, status, pr_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    claude_input_tokens, claude_output_tokens, status, pr_status,
+                    failure_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     inv.id,
                     inv.fingerprint,
@@ -349,6 +352,7 @@ class ErrorCache:
                     inv.claude_output_tokens,
                     inv.status,
                     inv.pr_status,
+                    inv.failure_reason,
                 ),
             )
 

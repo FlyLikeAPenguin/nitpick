@@ -206,8 +206,16 @@ def run_pipeline(config: Config) -> None:
                 # tracked gets a recurrence note on the existing issue instead
                 # of a new one — the same error checked twice must not produce
                 # two tickets.
+                #
+                # Only the filing of a NEW issue waits on is_actionable. Linking
+                # a recurrence does not: the two verdicts are independent (the
+                # investigator is told so), and the same error readily lands on
+                # either side of the actionable line between runs. Gating both
+                # on it dropped those recurrences silently — no comment on the
+                # issue, no count — losing the recurrence record for an error
+                # already known to be worth tracking.
                 linked_existing = False
-                if svc_issues and tracker and tracker.is_configured and investigation.is_actionable:
+                if svc_issues and tracker and tracker.is_configured:
                     if investigation.is_duplicate:
                         try:
                             tracker.comment(
@@ -223,7 +231,7 @@ def run_pipeline(config: Config) -> None:
                             )
                         except Exception as e:
                             log.warning("Tracker comment failed: %s", e)
-                    else:
+                    elif investigation.is_actionable:
                         try:
                             issue_url = tracker.create(group, investigation)
                             investigation.linear_issue_url = issue_url

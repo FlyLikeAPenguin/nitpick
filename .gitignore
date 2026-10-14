@@ -6,3 +6,5 @@ data/
 logs/
 .claude/
 *.egg-info/
+config.yml
+com.joe.*.plist

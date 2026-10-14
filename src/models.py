@@ -54,6 +54,10 @@ class Investigation:
     estimated_fix_lines: int | None = None
     severity: str = "medium"
     affected_files: list[str] = field(default_factory=list)
+    # Why the investigation produced nothing usable, when it did: an
+    # unparseable result is otherwise indistinguishable from a genuine
+    # "no action needed" verdict once it reaches the database.
+    failure_reason: str = ""
     fix_description: str = ""
     recommendation: str = ""
     notion_page_url: str = ""

@@ -79,26 +79,36 @@ def run_pipeline(config: Config) -> None:
         log.info("DRY RUN mode — will fetch and fingerprint but not investigate/fix")
 
     investigated_this_run = 0
-    daily_limit_hit = False
-    investigations_today = cache.count_investigations_today()
+    limit_notified = False
 
-    if investigations_today >= max_per_day:
+    already_today = cache.count_investigations_today()
+    if already_today >= max_per_day:
         log.info(
-            "Daily investigation limit already reached (%d/%d), skipping investigations",
-            investigations_today, max_per_day,
+            "Daily investigation limit already reached, skipping investigations (%d/%d)",
+            already_today, max_per_day,
         )
-        daily_limit_hit = True
 
     for service_name, service_config in config.services.items():
         svc_settings = cache.resolve_service_settings(service_name)
         svc_investigations = svc_settings.get("investigations_enabled", "true") == "true"
-        svc_fixes = svc_settings.get("fixes_enabled", "true") == "true"
+        # Writing code is opt-in per service: absent setting means no fixes.
+        # Investigation and issue-filing stay on by default; only the pipeline
+        # stage that opens PRs against real repos requires explicit enabling.
+        svc_fixes = svc_settings.get("fixes_enabled", "false") == "true"
         svc_notify = svc_settings.get("slack_enabled", "true") == "true"
-        svc_budget = float(svc_settings.get("investigation_budget", str(config.claude_max_budget)))
+        svc_docs = svc_settings.get("docs_enabled", "true") == "true"
+        svc_issues = svc_settings.get("issues_enabled", "true") == "true"
+        svc_budget = None
+        if config.claude_max_budget is not None:
+            svc_budget = float(
+                svc_settings.get("investigation_budget", str(config.claude_max_budget))
+            )
 
         log.info(
-            "Service %s: investigations=%s fixes=%s notify=%s budget=$%.2f",
-            service_name, svc_investigations, svc_fixes, svc_notify, svc_budget,
+            "Service %s: investigations=%s docs=%s issues=%s fixes=%s notify=%s budget=%s",
+            service_name, svc_investigations, svc_docs, svc_issues, svc_fixes,
+            svc_notify,
+            f"${svc_budget:.2f}" if svc_budget is not None else "uncapped",
         )
 
         for region in service_config.regions:
@@ -145,26 +155,28 @@ def run_pipeline(config: Config) -> None:
                     log.info("Investigations disabled for %s, skipping", service_name)
                     continue
 
-                if daily_limit_hit:
-                    break
-
                 if investigated_this_run >= max_per_run:
                     log.info("Max errors per run (%d) reached, deferring", max_per_run)
                     break
 
-                if (investigations_today + investigated_this_run) >= max_per_day:
-                    log.info(
-                        "Daily investigation limit reached (%d/%d)",
-                        investigations_today + investigated_this_run,
-                        max_per_day,
-                    )
-                    if notifier:
-                        notifier.notify_daily_limit(
-                            investigations_today + investigated_this_run,
-                            max_per_day,
+                # Counted fresh rather than from a snapshot taken at run start:
+                # a run can outlast the UTC day (investigations are slow and the
+                # host sleeps mid-run), and a stale count charges yesterday's
+                # usage against today's budget — halting a run that still has
+                # its full quota. Re-reading also lets a run that crossed
+                # midnight resume once the new day's budget opens up.
+                investigations_today = cache.count_investigations_today()
+                if investigations_today >= max_per_day:
+                    if not limit_notified:
+                        log.info(
+                            "Daily investigation limit reached (%d/%d)",
+                            investigations_today, max_per_day,
                         )
-                    daily_limit_hit = True
+                        if notifier:
+                            notifier.notify_daily_limit(investigations_today, max_per_day)
+                        limit_notified = True
                     break
+                limit_notified = False
 
                 svc_config_copy = config.__class__(**config.__dict__)
                 svc_config_copy.claude_max_budget = svc_budget
@@ -184,7 +196,7 @@ def run_pipeline(config: Config) -> None:
                 new_status = "documented"
 
                 # Create RCA documentation via doc sink
-                if doc_sink and doc_sink.is_configured:
+                if svc_docs and doc_sink and doc_sink.is_configured:
                     try:
                         doc_url = doc_sink.create(group, investigation)
                         investigation.notion_page_url = doc_url
@@ -195,8 +207,16 @@ def run_pipeline(config: Config) -> None:
                 # tracked gets a recurrence note on the existing issue instead
                 # of a new one — the same error checked twice must not produce
                 # two tickets.
+                #
+                # Only the filing of a NEW issue waits on is_actionable. Linking
+                # a recurrence does not: the two verdicts are independent (the
+                # investigator is told so), and the same error readily lands on
+                # either side of the actionable line between runs. Gating both
+                # on it dropped those recurrences silently — no comment on the
+                # issue, no count — losing the recurrence record for an error
+                # already known to be worth tracking.
                 linked_existing = False
-                if tracker and tracker.is_configured and investigation.is_actionable:
+                if svc_issues and tracker and tracker.is_configured:
                     if investigation.is_duplicate:
                         try:
                             tracker.comment(
@@ -212,7 +232,7 @@ def run_pipeline(config: Config) -> None:
                             )
                         except Exception as e:
                             log.warning("Tracker comment failed: %s", e)
-                    else:
+                    elif investigation.is_actionable:
                         try:
                             issue_url = tracker.create(group, investigation)
                             investigation.linear_issue_url = issue_url

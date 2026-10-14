@@ -94,17 +94,29 @@ CREATE INDEX IF NOT EXISTS idx_run_log_started ON run_log(started_at);
 # Defaults for settings that can be toggled from the dashboard
 SETTINGS_DEFAULTS: dict[str, str] = {
     "investigations_enabled": "true",
-    # Creating branches, pushing code, and opening PRs always requires an
-    # explicit opt-in from the dashboard.
+    # Opt-in: a service only gets code changes once it is explicitly enabled,
+    # globally here and per-service on the Services tab.
     "fixes_enabled": "false",
     "slack_enabled": "true",
+    # Documenting and issue-filing are separate stages: a deployment whose
+    # tracker issue already carries the full RCA can turn the doc sink off
+    # without losing the write-up, and a doc-only deployment can file nothing.
+    "docs_enabled": "true",
+    "issues_enabled": "true",
     "max_errors_per_run": "10",
     "max_investigations_per_day": "50",
     "investigation_budget": "2.00",
 }
 
 # Settings that can be overridden per-service
-PER_SERVICE_KEYS = {"investigations_enabled", "fixes_enabled", "slack_enabled", "investigation_budget"}
+PER_SERVICE_KEYS = {
+    "investigations_enabled",
+    "fixes_enabled",
+    "slack_enabled",
+    "docs_enabled",
+    "issues_enabled",
+    "investigation_budget",
+}
 
 
 class ErrorCache:
@@ -130,6 +142,8 @@ class ErrorCache:
             conn.execute("ALTER TABLE investigations ADD COLUMN is_duplicate INTEGER DEFAULT 0")
         if "duplicate_of_url" not in cols:
             conn.execute("ALTER TABLE investigations ADD COLUMN duplicate_of_url TEXT DEFAULT ''")
+        if "failure_reason" not in cols:
+            conn.execute("ALTER TABLE investigations ADD COLUMN failure_reason TEXT DEFAULT ''")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -309,8 +323,9 @@ class ErrorCache:
                     affected_files, fix_description, recommendation,
                     notion_page_url, linear_issue_url, linear_issue_id,
                     pr_url, branch_name, fix_error, claude_cost_usd,
-                    claude_input_tokens, claude_output_tokens, status, pr_status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    claude_input_tokens, claude_output_tokens, status, pr_status,
+                    failure_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     inv.id,
                     inv.fingerprint,
@@ -337,6 +352,7 @@ class ErrorCache:
                     inv.claude_output_tokens,
                     inv.status,
                     inv.pr_status,
+                    inv.failure_reason,
                 ),
             )
 

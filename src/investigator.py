@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import subprocess
 from datetime import datetime, timezone
 from typing import Any
@@ -119,6 +120,25 @@ def build_add_dir_args(service_config: ServiceConfig, config: Config) -> list[st
     return args
 
 
+def budget_args(max_budget: float | None) -> list[str]:
+    """Build the --max-budget-usd flag, or nothing when no cap is configured.
+
+    The flag caps API-key billing only; under a Claude subscription it has no
+    effect, so it is omitted rather than passed as a misleading no-op.
+    """
+    if max_budget is None:
+        return []
+    return ["--max-budget-usd", f"{max_budget:.2f}"]
+
+
+# The CLI reports transport failures as ordinary result text, e.g.
+# "API Error: Connection closed mid-response. The response above may be incomplete."
+_API_ERROR_RE = re.compile(r"^(API Error|Execution error|Error:)", re.I)
+
+# One retry: the dominant failure is a dropped connection, which is transient.
+MAX_ATTEMPTS = 2
+
+
 def parse_claude_output(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Parse Claude CLI JSON output envelope. Returns (result_data, usage_data)."""
     envelope = json.loads(stdout)
@@ -143,30 +163,68 @@ def parse_claude_output(stdout: str) -> tuple[dict[str, Any], dict[str, Any]]:
             b.get("text", "") for b in envelope["content"] if b.get("type") == "text"
         )
 
+    # A call that died mid-stream still returns a well-formed envelope, with the
+    # failure described in the result text. Without this it parses as ordinary
+    # output, yielding an investigation that merely looks unactionable.
+    if envelope.get("is_error") or _API_ERROR_RE.match(text.strip()):
+        return {"api_error": text.strip()[:500]}, usage
+
     result = _extract_json(text)
     return result, usage
 
 
+# Keys from the requested output schema, used to tell the investigation result
+# apart from any other JSON object that happens to appear in the output.
+_RESULT_KEYS = (
+    "root_cause",
+    "is_actionable",
+    "is_fixable",
+    "is_duplicate",
+    "severity",
+    "recommendation",
+    "affected_files",
+    "fix_description",
+)
+
+
 def _extract_json(text: str) -> dict[str, Any]:
-    """Extract a JSON object from text, handling code fences."""
-    text = text.strip()
+    """Extract the investigation result object from Claude's output.
 
-    import re
-    fence_match = re.search(r"```(?:json)?\s*\n?([\s\S]*?)\n?\s*```", text, re.I)
-    if fence_match:
-        text = fence_match.group(1).strip()
+    The object is rarely the whole output: Claude tends to explain its finding
+    first, and that prose routinely contains braces of its own. Go panic frames
+    are the common case — ``OnWrite(0x0?, {0x0, 0x0, 0x0})`` — and a brace-heavy
+    stack is exactly what an investigation quotes back. Slicing from the first
+    brace to the last therefore swallows the prose and parses nothing, which
+    discarded otherwise complete investigations at roughly 17% on Go services
+    against 1% elsewhere.
 
-    if not text.startswith("{"):
-        brace_start = text.find("{")
-        brace_end = text.rfind("}")
-        if brace_start != -1 and brace_end > brace_start:
-            text = text[brace_start : brace_end + 1]
+    So decode every brace-led candidate and keep the best: the one carrying the
+    most keys of the requested schema, breaking ties on length so an outer
+    object beats one nested inside it. This subsumes code-fence handling, since
+    a fenced object is found by its brace like any other.
+    """
+    text = (text or "").strip()
+    decoder = json.JSONDecoder()
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        log.warning("Failed to parse investigation JSON, returning raw text")
-        return {"root_cause": text[:500], "parse_error": True}
+    best: tuple[tuple[int, int], dict[str, Any]] | None = None
+    for i, ch in enumerate(text):
+        if ch != "{":
+            continue
+        try:
+            candidate, end = decoder.raw_decode(text, i)
+        except ValueError:
+            continue
+        if not isinstance(candidate, dict):
+            continue
+        score = (sum(k in candidate for k in _RESULT_KEYS), end - i)
+        if best is None or score > best[0]:
+            best = (score, candidate)
+
+    if best is not None:
+        return best[1]
+
+    log.warning("Failed to parse investigation JSON, returning raw text")
+    return {"root_cause": text[:500], "parse_error": True}
 
 
 def investigate(
@@ -188,8 +246,9 @@ def investigate(
     cmd = [
         config.claude_bin,
         "-p",
-        "--model", "opus",
-        "--max-budget-usd", str(config.claude_max_budget),
+        "--model", config.claude_model,
+        "--effort", config.claude_effort,
+        *budget_args(config.claude_max_budget),
         "--output-format", "json",
         # Investigations are strictly read-only: any code fix must go through
         # the fixer pipeline, which works in an isolated git worktree.
@@ -202,21 +261,62 @@ def investigate(
         error.service, error.error_type, error.fingerprint,
     )
 
+    data: dict[str, Any] = {}
+    failure_reason = ""
+    failure_detail = ""
+
     try:
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=900,
-        )
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
 
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
-        if not stdout:
-            raise RuntimeError(f"Claude produced no output (exit={result.returncode}). stderr: {stderr[:500]}")
+            stdout = result.stdout.strip()
+            stderr = result.stderr.strip()
+            if not stdout:
+                failure_reason = "no_output"
+                failure_detail = f"Claude produced no output (exit={result.returncode}). stderr: {stderr[:300]}"
+            else:
+                data, usage = parse_claude_output(stdout)
+                # Charged whether or not the attempt produced anything usable.
+                investigation.claude_cost_usd += usage.get("cost_usd", 0.0)
+                investigation.claude_input_tokens += usage.get("input_tokens", 0)
+                investigation.claude_output_tokens += usage.get("output_tokens", 0)
 
-        data, usage = parse_claude_output(stdout)
+                if data.get("api_error"):
+                    failure_reason = "api_error"
+                    failure_detail = data["api_error"]
+                elif data.get("parse_error"):
+                    failure_reason = "unparseable_output"
+                    failure_detail = data.get("root_cause", "")
+                else:
+                    failure_reason = ""
+                    failure_detail = ""
+                    break
+
+            if attempt < MAX_ATTEMPTS:
+                log.warning(
+                    "Investigation attempt %d/%d for %s failed (%s); retrying",
+                    attempt, MAX_ATTEMPTS, error.fingerprint, failure_reason,
+                )
+
+        # Recorded as failed rather than complete so the pipeline re-queues the
+        # error instead of closing it with a result nobody produced.
+        if failure_reason:
+            investigation.status = "failed"
+            investigation.failure_reason = failure_reason
+            investigation.root_cause = failure_detail[:500]
+            investigation.completed_at = datetime.now(timezone.utc)
+            log.error(
+                "Investigation failed for %s after %d attempts (%s), cost=$%.4f",
+                error.fingerprint, MAX_ATTEMPTS, failure_reason,
+                investigation.claude_cost_usd,
+            )
+            return investigation
 
         investigation.root_cause = data.get("root_cause", "")
         investigation.is_actionable = bool(data.get("is_actionable", False))
@@ -238,9 +338,6 @@ def investigate(
         investigation.fix_description = data.get("fix_description", "")
         investigation.recommendation = data.get("recommendation", "")
         # notion_page_url / linear_issue_url are set by the pipeline, not the model.
-        investigation.claude_cost_usd = usage.get("cost_usd", 0.0)
-        investigation.claude_input_tokens = usage.get("input_tokens", 0)
-        investigation.claude_output_tokens = usage.get("output_tokens", 0)
         investigation.status = "complete"
         investigation.completed_at = datetime.now(timezone.utc)
 
@@ -256,12 +353,14 @@ def investigate(
     except subprocess.TimeoutExpired:
         log.error("Claude investigation timed out for %s", error.fingerprint)
         investigation.status = "failed"
+        investigation.failure_reason = "timeout"
         investigation.root_cause = "Investigation timed out after 900s"
         investigation.completed_at = datetime.now(timezone.utc)
 
     except Exception as e:
         log.error("Claude investigation failed for %s: %s", error.fingerprint, e)
         investigation.status = "failed"
+        investigation.failure_reason = "error"
         investigation.root_cause = f"Investigation error: {e}"
         investigation.completed_at = datetime.now(timezone.utc)
 

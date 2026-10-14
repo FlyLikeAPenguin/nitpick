@@ -177,14 +177,11 @@ Available at `http://localhost:8111` when running `python -m src.main serve`.
 
 ### macOS LaunchAgent
 
-Template plist files are included. Edit them to fill in `__INSTALL_DIR__` and `__UV_PATH__` placeholders, then:
-
 ```bash
-cp com.example.nitpick.plist ~/Library/LaunchAgents/
-cp com.example.nitpick-dashboard.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.example.nitpick.plist
-launchctl load ~/Library/LaunchAgents/com.example.nitpick-dashboard.plist
+scripts/install.sh
 ```
+
+This checks for `uv`, `claude` and `gh`, runs `uv sync`, creates `.env` and `config.yml` from the examples if they are missing, warns about any `repos:` path that does not exist, and loads two LaunchAgents for the current user: `com.<user>.nitpick` (hourly, on the hour) and `com.<user>.nitpick-dashboard` (always on). Re-running it replaces the jobs and leaves your `.env` and `config.yml` alone.
 
 ### cron
 

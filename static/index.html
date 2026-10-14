@@ -262,6 +262,16 @@
         <div class="desc">Run Claude investigations on new errors</div>
       </div>
       <div class="setting-card">
+        <div class="label">RCA documents</div>
+        <label class="toggle"><input type="checkbox" id="set-docs-enabled" onchange="saveSetting('docs_enabled', this.checked)"><span class="slider"></span></label>
+        <div class="desc">Write the RCA to the doc sink. Off leaves the tracker issue as the record</div>
+      </div>
+      <div class="setting-card">
+        <div class="label">Issue filing</div>
+        <label class="toggle"><input type="checkbox" id="set-issues-enabled" onchange="saveSetting('issues_enabled', this.checked)"><span class="slider"></span></label>
+        <div class="desc">File and update tracker issues for actionable errors</div>
+      </div>
+      <div class="setting-card">
         <div class="label">Auto-fix &amp; PR</div>
         <label class="toggle"><input type="checkbox" id="set-fixes-enabled" onchange="saveSetting('fixes_enabled', this.checked)"><span class="slider"></span></label>
         <div class="desc">Attempt automated fixes and open PRs for fixable errors (off by default)</div>
@@ -516,13 +526,15 @@ function renderInvestigations() {
       <td>${severity(inv.severity || 'medium')}</td>
       <td>${inv.is_actionable ? '✓' : '-'}</td>
       <td>${inv.is_fixable ? '✓' : '-'}</td>
-      <td>${badge(inv.status)}</td>
+      <td>${badge(inv.status)}${inv.failure_reason ? `<div style="color:var(--fg3);font-size:11px;margin-top:2px">${inv.failure_reason}</div>` : ''}</td>
       <td>$${(inv.claude_cost_usd || 0).toFixed(4)}</td>
       <td>${links.join(' ') || '-'}</td>
     </tr>
     <tr class="expand-row" id="inv-expand-${i}">
       <td colspan="9">
         <div class="detail-grid">
+${inv.failure_reason ? `
+          <div class="label">Failed</div><div style="color:#f44">${inv.failure_reason} — no result was produced; the error is re-queued for the next run</div>` : ''}
           <div class="label">Root Cause</div><div>${inv.root_cause || '-'}</div>
           <div class="label">Fix</div><div>${inv.fix_description || '-'}</div>${inv.fix_error ? `
           <div class="label">Fix Error</div><div style="color:#f44">${inv.fix_error}</div>` : ''}
@@ -665,6 +677,8 @@ async function triggerRun() {
 async function loadSettings() {
   const s = await api('/api/settings');
   document.getElementById('set-investigations-enabled').checked = s.investigations_enabled === 'true';
+  document.getElementById('set-docs-enabled').checked = s.docs_enabled !== 'false';
+  document.getElementById('set-issues-enabled').checked = s.issues_enabled !== 'false';
   document.getElementById('set-fixes-enabled').checked = s.fixes_enabled === 'true';
   document.getElementById('set-slack-enabled').checked = s.slack_enabled === 'true';
   document.getElementById('set-max-errors-per-run').value = s.max_errors_per_run || '10';
@@ -712,6 +726,8 @@ function renderServiceSettings() {
 
   const items = [
     { key: 'investigations_enabled', label: 'Investigations', type: 'toggle', desc: 'Run Claude investigations' },
+    { key: 'docs_enabled', label: 'RCA documents', type: 'toggle', desc: 'Write the RCA to the doc sink' },
+    { key: 'issues_enabled', label: 'Issue filing', type: 'toggle', desc: 'File tracker issues' },
     { key: 'fixes_enabled', label: 'Auto-fix & PR', type: 'toggle', desc: 'Attempt automated fixes' },
     { key: 'slack_enabled', label: 'Slack notifications', type: 'toggle', desc: 'Send Slack messages' },
     { key: 'investigation_budget', label: 'Investigation budget ($)', type: 'number', desc: 'Max spend per investigation', min: 0.5, max: 10, step: 0.25 },

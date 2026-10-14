@@ -22,7 +22,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>__PATH__</string>
   </dict>
 
   <key>RunAtLoad</key>

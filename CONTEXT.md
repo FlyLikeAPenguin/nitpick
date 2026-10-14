@@ -51,7 +51,10 @@ For operations after Claude finishes (creating docs, filing issues, attaching PR
 6. On close: DB→documented, doc comment "Fix PR closed"
 
 ### Dashboard settings override pipeline config
-The `settings` table in SQLite holds runtime-adjustable values (investigations_enabled, fixes_enabled, notifications_enabled, max_errors_per_run, max_investigations_per_day, investigation_budget). The pipeline reads these at the start of each run and they override the env var defaults. The dashboard UI provides toggles/inputs for all of these.
+The `settings` table in SQLite holds runtime-adjustable values (investigations_enabled, docs_enabled, issues_enabled, fixes_enabled, notifications_enabled, max_errors_per_run, max_investigations_per_day, investigation_budget). The pipeline reads these at the start of each run and they override the env var defaults. The dashboard UI provides toggles/inputs for all of these.
+
+### Pipeline stages are independently toggleable
+Investigate, document, file, fix and notify are gated separately, globally and per-service, so a deployment can run any subset. Turning `docs_enabled` off leaves the tracker issue as the RCA of record — the issue body carries every section the doc sink would have written (root cause, recommendation, fix description, affected files), so nothing is lost. Turning `issues_enabled` off keeps the doc without a ticket. Provider `type` in config.yml chooses *which* adapter fills a role; these settings choose *whether* that stage runs at all.
 
 ### config.yml is the source of truth for services
 Services (queries, regions, code paths) live in `config.yml`, not the database. The dashboard reads and writes this file directly via `yaml.safe_load`/`yaml.dump`.
@@ -65,7 +68,10 @@ Services (queries, regions, code paths) live in `config.yml`, not the database. 
 `save_investigation()` inserts a row with a specific number of VALUES placeholders. When adding fields to the Investigation model, update both the INSERT statement and the field count.
 
 ### Claude output parsing
-Claude sometimes wraps JSON in markdown fences despite being told not to. `_extract_json()` in `investigator.py` handles this: strips code fences, finds the first `{` to last `}`, and parses. If parsing fails, it returns the raw text as `root_cause` with a `parse_error` flag.
+Claude often explains its finding before emitting the requested JSON, and that prose regularly contains braces of its own — Go panic frames like `{0x0, 0x0, 0x0}` are the common case, since a brace-heavy stack is exactly what an investigation quotes back. `_extract_json()` in `investigator.py` therefore decodes *every* brace-led candidate with `raw_decode` and keeps the one carrying the most keys of the requested schema, breaking ties on length so an outer object beats a nested one. This subsumes code-fence handling — a fenced object is found by its brace like any other. An earlier version sliced from the first `{` to the last `}`, which swallowed the prose and discarded otherwise complete investigations at ~17% on Go services against ~1% elsewhere.
+
+### Investigations fail loudly
+A dropped connection still returns a well-formed CLI envelope with the failure in the result text (`API Error: Connection closed mid-response`), so it would otherwise parse as an ordinary unactionable result. `parse_claude_output()` detects this via `is_error` or the error-text prefix. Anything that yields no usable result — API error, unparseable output, no output — is retried once (`MAX_ATTEMPTS`), then recorded with `status='failed'` and a `failure_reason`, which puts the error group back to `failed` so the next run re-investigates it rather than closing it with a result nobody produced. `failure_reason` is surfaced on the dashboard; without it a failure is indistinguishable from a genuine "no action needed".
 
 ### Dedup context for investigations
 When investigating, the pipeline passes recent investigations for the same service so Claude can recognise an error it has already seen. If the error shares a root cause with an existing issue — one from that list or one Claude finds itself — it sets `is_duplicate=true` and `duplicate_of_url`, and the pipeline posts a recurrence note on that issue via `tracker.comment()` instead of filing a new one. Duplicates also skip the fix stage and the Slack notification.

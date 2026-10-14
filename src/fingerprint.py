@@ -12,6 +12,13 @@ ISO_TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[.\d]*Z?")
 # Non-ISO timestamps like "2026/07/13 09:47:33"
 SLASH_TS_RE = re.compile(r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}")
 NUMERIC_ID_RE = re.compile(r"\b\d{5,}\b")
+# Hex literals: Go panic frames print pointer args and PC offsets as hex
+# ("OnWrite(0x0?, 0x1d?, {0x0?, 0xf517737e840?})", "main.go:141 +0x887").
+# These vary on every occurrence of the same panic, so leaving them in the
+# template makes each recurrence a fresh fingerprint. Must be substituted
+# before BASE64_TOKEN_RE, which would otherwise eat uppercase hex like
+# 0xDEADBEEF. Same class of problem as the "Datadog Tracer" ignore pattern.
+HEX_ADDR_RE = re.compile(r"\b0[xX][0-9a-fA-F]+\b")
 IP_RE = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
 # Base64-encoded tokens/IDs: requires mixed case + digits/special, or '=' padding
 BASE64_TOKEN_RE = re.compile(
@@ -33,6 +40,7 @@ def normalize_message(message: str) -> str:
     msg = ISO_TS_RE.sub("<TS>", msg)
     msg = SLASH_TS_RE.sub("<TS>", msg)
     msg = IP_RE.sub("<IP>", msg)
+    msg = HEX_ADDR_RE.sub("<ADDR>", msg)
     msg = BASE64_TOKEN_RE.sub("<TOK>", msg)
     msg = NUMERIC_ID_RE.sub("<ID>", msg)
     msg = WHITESPACE_RE.sub(" ", msg).strip()
